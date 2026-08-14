@@ -1,8 +1,5 @@
-import { Player } from './Player.js';
 import { PlayerGame } from './PlayerGame.js';
-import { Carta } from './Carta.js';
-import { Baralho } from './Baralho.js';
-import {Game} from "./Game.js";
+import { Game } from './Game.js';
 
 export class Looby {
     constructor(numPla, rostar, ramshu) {

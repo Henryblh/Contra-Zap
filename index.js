@@ -1,14 +1,12 @@
-// Exemplo de uso:
-import { Player } from './Player.js';
-import { PlayerGame } from './PlayerGame.js';
-
-// 1. O jogador faz login
-const perfilHenrique = new Player("Henrique", "senha123", 1500);
-perfilHenrique.id = 42; // Simula que pegou do banco de dados
-
-// 2. O jogador entra na partida
-const jogadorNaPartida = new PlayerGame(perfilHenrique);
-
-console.log(jogadorNaPartida.nome); // Saída: Henrique
-console.log(jogadorNaPartida.pontuacao); // Saída: 0
-
+// index.js — ponto de entrada público do módulo.
+// Reexporta as peças do jogo para quem for consumir a lib (ex.: Server.js
+// ao ligar o GameController nos sockets).
+export { GameController } from './GameController.js';
+export { Looby } from './Looby.js';
+export { Game } from './Game.js';
+export { RodadaGame } from './Rodada.js';
+export { Mesa } from './Mesa.js';
+export { Baralho } from './Baralho.js';
+export { Carta } from './Carta.js';
+export { Player } from './Player.js';
+export { PlayerGame } from './PlayerGame.js';

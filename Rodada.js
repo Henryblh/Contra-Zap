@@ -1,16 +1,9 @@
 // Rodada.js (ou RodadaGame.js)
-import { Carta } from './Carta.js';
 import { Baralho } from './Baralho.js';
-// Removemos a importação do Game para quebrar a dependência circular!
-// import { Game } from "./Game.js";
-
 import { Mesa } from './Mesa.js';
 
-// Removemos o "extends Game"
 export class RodadaGame {
     constructor(gameSettings) {
-        // Removemos o super() porque não tem mais herança
-
         // Puxamos as configurações diretamente da instância do Game que foi passada
         this.gameOrder = gameSettings.gameOrder;
         this.round = gameSettings.round;
@@ -38,18 +31,11 @@ export class RodadaGame {
                 }
             }
         }
-
-        // Console log correto para imprimir a mão de todos no final
-        for (let i = 0; i < this.gameOrder.length; i++) {
-            console.log(`Mão do jogador ${this.gameOrder[i].nome}:`, this.gameOrder[i].mao);
-        }
     }
 
     virarManilha() {
         this.vira = this.baralho.comprar();
         this.viraValor = (this.vira.valorInt === 9) ? 0 : this.vira.valorInt + 1;
-
-        console.log(`\n🃏 Vira: ${this.vira.toString()} | Manilha: ${this.viraValor}`);
 
         // A primeira vaza da rodada já pode começar com a manilha definida
         this.novaVaza();
@@ -73,13 +59,8 @@ export class RodadaGame {
     }
 
     registrarJogada(jogador, carta) {
-        console.log(`\n> ${jogador.nome} jogou ${carta.toString()}`);
-
         // A mesa processa a carta e já retorna o status atualizado
-        const statusDaMesa = this.mesaAtiva.receberCarta(carta, jogador);
-
-        console.log(`Status: ${statusDaMesa.status} | Ganhando: ${statusDaMesa.cartaGanhando}`);
-        return statusDaMesa;
+        return this.mesaAtiva.receberCarta(carta, jogador);
     }
 
     // Fecha a vaza atual: soma o steak do vencedor e define quem começa a próxima vaza.
@@ -99,7 +80,6 @@ export class RodadaGame {
         for (const jogador of this.gameOrder) {
             const diferenca = Math.abs(jogador.aposta - jogador.steak);
             jogador.hp -= diferenca;
-            console.log(`${jogador.nome}: apostou ${jogador.aposta}, fez ${jogador.steak} -> perdeu ${diferenca} hp (hp atual: ${jogador.hp})`);
         }
     }
 

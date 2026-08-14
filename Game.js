@@ -1,16 +1,8 @@
-import { Player } from './Player.js';
-import { PlayerGame } from './PlayerGame.js';
-import { Carta } from './Carta.js';
-import { Baralho } from './Baralho.js';
 import { RodadaGame } from './Rodada.js';
-// 1. Apagamos o import do Looby! Quebramos o ciclo aqui.
 
-// 2. Removemos o "extends Looby"
 export class Game {
     constructor(settings) {
-        // 3. Removemos o super()
-
-        // Agora apenas copiamos os valores do Lobby (que chegaram pela variável settings)
+        // Apenas copiamos os valores do Lobby (que chegaram pela variável settings)
         this.numberPlayers = settings.numberPlayers;
         this.roundStart = settings.roundStart;
         this.randomShuffle = settings.randomShuffle;
@@ -41,8 +33,6 @@ export class Game {
     // Remove da rotação quem chegou a 0 (ou menos) de hp
     eliminarZerados() {
         const eliminados = this.gameOrder.filter(jogador => jogador.hp <= 0);
-        eliminados.forEach(jogador => console.log(`💀 ${jogador.nome} foi eliminado (hp ${jogador.hp})`));
-
         this.gameOrder = this.gameOrder.filter(jogador => jogador.hp > 0);
         return eliminados;
     }
