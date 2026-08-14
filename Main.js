@@ -2,8 +2,8 @@
 // Harness de teste local: cria jogadores, assina os eventos do GameController
 // e imprime o andamento da partida no console. A lógica de regras vive inteira
 // no GameController/Game/RodadaGame/Mesa — este arquivo só observa e exibe.
-import { Player } from './Player.js';
-import { GameController } from './GameController.js';
+import { Player } from './game/Player.js';
+import { GameController } from './game/GameController.js';
 
 const jogadoresBase = [
     new Player("henrique", 123),
