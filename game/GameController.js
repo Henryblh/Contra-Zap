@@ -90,8 +90,18 @@ export class GameController extends EventEmitter {
 
     _avancarOuFinalizar() {
         const vivos = this.game.gameOrder.filter(j => j.hp > 0);
-        if (vivos.length <= 1) {
-            this.emit('jogoFinalizado', { vencedor: vivos[0]?.nome ?? null });
+        if (vivos.length === 1) {
+            this.emit('jogoFinalizado', { vencedor: vivos[0].nome });
+            return;
+        }
+        if (vivos.length === 0) {
+            // Todos os jogadores que disputavam a mesa zeraram o hp na mesma rodada.
+            // Desempate: vence quem teve a menor diferença entre aposta e steak na última rodada.
+            const vencedor = this.rodada.gameOrder.reduce((melhor, jogador) => {
+                const diferenca = Math.abs(jogador.aposta - jogador.steak);
+                return diferenca < melhor.diferenca ? { jogador, diferenca } : melhor;
+            }, { jogador: this.rodada.gameOrder[0], diferenca: Math.abs(this.rodada.gameOrder[0].aposta - this.rodada.gameOrder[0].steak) });
+            this.emit('jogoFinalizado', { vencedor: vencedor.jogador.nome });
             return;
         }
 
