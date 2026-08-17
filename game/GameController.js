@@ -20,6 +20,7 @@ export class GameController extends EventEmitter {
         this.game = null;
         this.rodada = null;
         this.numeroRodada = 0;
+        this._timerInicio = null;
     }
 
     // Sala de espera: transforma o Player que entrou num PlayerGame e guarda
@@ -31,7 +32,43 @@ export class GameController extends EventEmitter {
         return this;
     }
 
+    // Chamado quando a sala lota: dá um tempo de espera antes de começar de
+    // verdade (dá chance de cancelar via forcarInicio, ou simplesmente pra
+    // não começar no instante exato que a última pessoa entra). Idempotente
+    // — chamar de novo com a partida já agendada ou já iniciada não faz nada.
+    agendarInicio(tempoEsperaMs) {
+        if (this.game || this._timerInicio) return;
+
+        this._timerInicio = setTimeout(() => this.iniciarPartida(), tempoEsperaMs);
+        this._timerInicio.unref?.(); // não deve segurar o processo vivo (testes, shutdown)
+        this.emit('partidaIniciandoEm', { segundos: tempoEsperaMs / 1000 });
+    }
+
+    // Pura consulta — não lança, não muda estado. Quem decide se isso vira
+    // um erro de protocolo (NAO_AUTORIZADO) é a camada de sala, não aqui.
+    jogadorEhAdm(playerId) {
+        return this.jogadores.some(jogador => jogador.id === playerId && jogador.adm);
+    }
+
+    // Pula a espera de agendarInicio e começa na hora. Quem valida se quem
+    // pediu tem permissão é a camada de sala (via jogadorEhAdm), antes de
+    // chamar isto.
+    forcarInicio() {
+        if (this._timerInicio) {
+            clearTimeout(this._timerInicio);
+            this._timerInicio = null;
+        }
+        this.iniciarPartida();
+    }
+
     iniciarPartida() {
+        if (this.game) return; // idempotente — evita reiniciar se o timer e um forcarInicio colidirem
+
+        if (this._timerInicio) {
+            clearTimeout(this._timerInicio);
+            this._timerInicio = null;
+        }
+
         this.game = new Game({
             numberPlayers: this.numberPlayers,
             roundStart: this.roundStart,
@@ -53,6 +90,7 @@ export class GameController extends EventEmitter {
 
         rodada.darCartas();
         this.emit('cartasDistribuidas', rodada.gameOrder.map(j => ({
+            id: j.id,
             nome: j.nome,
             mao: j.mao.map(c => c.toString())
         })));
@@ -120,7 +158,7 @@ export class GameController extends EventEmitter {
 
         const eliminados = this.game.eliminarZerados();
         if (eliminados.length > 0) {
-            this.emit('jogadoresEliminados', eliminados.map(j => ({ nome: j.nome, hp: j.hp })));
+            this.emit('jogadoresEliminados', { eliminados: eliminados.map(j => ({ nome: j.nome, hp: j.hp })) });
         }
         this.rodada.resetarApostasSteaks();
         this.game.girarOrdem();

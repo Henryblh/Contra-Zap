@@ -35,7 +35,10 @@ Isso simula uma partida inteira com 4 jogadores fixos (jogadas automáticas) e i
    quer criar uma sala nova ou entrar numa já aberta. O primeiro cria (e recebe
    um `salaId` pra passar pros outros); os demais escolhem "entrar" e veem a
    sala na lista. Todo mundo na sala vê a lista de jogadores atualizar em
-   tempo real conforme cada um entra.
+   tempo real conforme cada um entra. Quando a sala lota (padrão 4), a
+   partida começa sozinha 15s depois — cada terminal só imprime a própria
+   mão (`suaMao` é privado, roteado por jogador) e o resto da partida
+   (manilha, jogadas, vazas, vencedor) em tempo real.
 
 ## Estrutura do projeto
 
@@ -87,7 +90,13 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
   (JWT, expira em 6h, sobrevive a restart do processo) e sala multiplayer (criar, entrar,
   listar salas abertas) funcionando ponta a ponta via socket.io — testado com 4 conexões
   reais simultâneas.
-- 🚧 Iniciar a partida a partir da sala cheia (ligar ao `GameController`) — próximo marco.
-- 🚧 Reconexão (socket cair e voltar durante login/espera de sala) — a camada de token já
-  suporta, falta o evento/fluxo do lado do protocolo.
+- ✅ Sala cheia → partida começa sozinha (15s de espera, ou na hora se o dono/adm mandar
+  `forcarInicio`). Todo evento de jogo é retransmitido pro cliente certo: broadcast de
+  sala pra informação pública (jogadas, vazas, manilha, placar), e privado por jogador
+  (`suaMao`, via sala pessoal `jogador:<id>`) pra mão de cada um — testado ponta a ponta
+  com 4 conexões reais confirmando que ninguém vê a mão de outro jogador.
+- 🚧 Reconexão (socket cair e voltar durante login/espera/partida) — a camada de token e a
+  sala pessoal por jogador já suportam; falta o evento/fluxo do lado do protocolo, e o
+  `GameController` ainda roda a partida inteira num loop síncrono (sem esperar jogada real).
+- 🚧 Sair da sala voluntariamente antes da partida começar.
 - 🚧 Interface web — em desenvolvimento.

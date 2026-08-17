@@ -1,9 +1,11 @@
 // Main2.js
 // Harness de teste de um jogador de verdade: conecta no Server.js via
-// socket.io-client, loga (nome/senha contra banco.json, resolvido no
-// servidor), e entra num loop pra criar uma sala nova ou entrar numa já
-// aberta. Depois de entrar numa sala, fica esperando (imprimindo a lista de
-// jogadores a cada atualização) — início de partida é o próximo marco.
+// socket.io-client, loga (nome/senha contra o banco, resolvido no servidor),
+// e entra num loop pra criar uma sala nova ou entrar numa já aberta. Depois
+// de entrar numa sala, imprime a lista de jogadores a cada atualização e,
+// quando a sala lota, a partida inteira (mão própria, jogadas, vazas,
+// vencedor) — só não manda forcarInicio ainda: pra isso hoje precisa emitir
+// o evento manualmente, não tem prompt de CLI pra isso.
 //
 // Rodar (em dois terminais separados):
 //   npm start      -> sobe o servidor em http://localhost:3000
@@ -104,6 +106,42 @@ socket.on('listaJogadores', (payload) => {
     for (const jogador of payload.jogadores) {
         console.log(`  - ${jogador.nome}`);
     }
+});
+
+// Eventos da partida, retransmitidos do GameController (ver PROTOCOLO.md).
+// suaMao é privado — só chega aqui se for a mão deste jogador.
+socket.on('partidaIniciandoEm', ({ segundos }) => {
+    console.log(`\nSala cheia — partida começa em ${segundos}s (ou quando o dono forçar).`);
+});
+socket.on('novaRodadaIniciada', ({ numero, cartas }) => {
+    console.log(`\n===== Rodada ${numero} (${cartas} cartas) =====`);
+});
+socket.on('suaMao', ({ mao }) => {
+    console.log(`Sua mão: ${mao.join(', ')}`);
+});
+socket.on('manilhaVirada', ({ vira, viraValor }) => {
+    console.log(`Vira: ${vira} | Manilha: ${viraValor}`);
+});
+socket.on('turnoJogador', ({ jogador }) => {
+    console.log(`Vez de: ${jogador}`);
+});
+socket.on('cartaJogada', ({ jogador, carta, status }) => {
+    console.log(`> ${jogador} jogou ${carta} (${status.status})`);
+});
+socket.on('vazaFinalizada', ({ vencedor, carta }) => {
+    console.log(vencedor ? `Vaza: ${vencedor} venceu com ${carta}` : 'Vaza melada, ninguém pontuou');
+});
+socket.on('rodadaFinalizada', ({ numero, resultado }) => {
+    console.log(`\nFim da rodada ${numero}:`);
+    for (const { nome, hp } of resultado) {
+        console.log(`  ${nome}: hp ${hp}`);
+    }
+});
+socket.on('jogadoresEliminados', ({ eliminados }) => {
+    for (const { nome } of eliminados) console.log(`💀 ${nome} foi eliminado`);
+});
+socket.on('jogoFinalizado', ({ vencedor }) => {
+    console.log(`\n🏆 Vencedor: ${vencedor}`);
 });
 
 console.log(`\nAguardando na sala ${salaId}... (Ctrl+C para sair)`);

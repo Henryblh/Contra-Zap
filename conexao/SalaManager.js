@@ -16,6 +16,22 @@ export class ErroSala extends Error {
     }
 }
 
+const NUMERO_JOGADORES_MIN = 2;
+const NUMERO_JOGADORES_MAX = 6;
+const TEMPO_ESPERA_INICIO_MS_PADRAO = 15_000;
+
+function validarConfig({ numberPlayers, roundStart }) {
+    if (!Number.isInteger(numberPlayers) || numberPlayers < NUMERO_JOGADORES_MIN || numberPlayers > NUMERO_JOGADORES_MAX) {
+        throw new ErroSala(
+            CodigosErro.CONFIGURACAO_INVALIDA,
+            `numberPlayers deve ser um número inteiro entre ${NUMERO_JOGADORES_MIN} e ${NUMERO_JOGADORES_MAX}.`
+        );
+    }
+    if (!Number.isInteger(roundStart) || roundStart < 1) {
+        throw new ErroSala(CodigosErro.CONFIGURACAO_INVALIDA, 'roundStart deve ser um número inteiro maior ou igual a 1.');
+    }
+}
+
 // Uma sala = um GameController (que já guarda seus próprios jogadores/config
 // de sala de espera). "iniciada" não é uma flag separada de propósito: é derivada de
 // `controller.game`, pra não existir um segundo lugar de verdade que possa
@@ -32,21 +48,30 @@ class Sala {
 }
 
 export class SalaManager {
-    constructor() {
+    constructor({ tempoEsperaInicioMs = TEMPO_ESPERA_INICIO_MS_PADRAO } = {}) {
         this.salas = new Map();
+        this.tempoEsperaInicioMs = tempoEsperaInicioMs;
     }
 
-    // Cria uma sala nova e já coloca o jogador que criou dentro dela.
+    // Cria uma sala nova e já coloca o jogador que criou dentro dela. Quem
+    // cria vira o adm da sala (pode forçar início antes dos 15s, ver
+    // forcarInicio). Lança ErroSala com CONFIGURACAO_INVALIDA se
+    // numberPlayers/roundStart estiverem fora do intervalo aceito.
     criarSala(player, config = {}) {
+        const numberPlayers = config.numberPlayers ?? 4;
+        const roundStart = config.roundStart ?? 3;
+        validarConfig({ numberPlayers, roundStart });
+
         const salaId = this._gerarSalaId();
         const sala = new Sala(salaId, {
-            numberPlayers: config.numberPlayers ?? 4,
-            roundStart: config.roundStart ?? 3,
+            numberPlayers,
+            roundStart,
             randomShuffle: config.randomShuffle ?? true,
         });
 
         this.salas.set(salaId, sala);
         this._entrar(sala, player);
+        sala.jogadores[0].adm = true;
         return sala;
     }
 
@@ -74,6 +99,28 @@ export class SalaManager {
         return sala;
     }
 
+    // O adm da sala pula a espera de tempoEsperaInicioMs e começa na hora.
+    // Só funciona com a sala cheia (senão não tem partida pra começar) e só
+    // pra quem criou a sala.
+    forcarInicio(salaId, player) {
+        const sala = this.salas.get(salaId);
+        if (!sala) {
+            throw new ErroSala(CodigosErro.SALA_NAO_ENCONTRADA, `Sala "${salaId}" não existe.`);
+        }
+        if (sala.iniciada) {
+            throw new ErroSala(CodigosErro.SALA_JA_INICIADA, 'A partida desta sala já começou.');
+        }
+        if (sala.jogadores.length < sala.numberPlayers) {
+            throw new ErroSala(CodigosErro.SALA_NAO_CHEIA, 'A sala ainda não está cheia.');
+        }
+        if (!sala.controller.jogadorEhAdm(player.id)) {
+            throw new ErroSala(CodigosErro.NAO_AUTORIZADO, 'Só quem criou a sala pode forçar o início.');
+        }
+
+        sala.controller.forcarInicio();
+        return sala;
+    }
+
     obterSala(salaId) {
         return this.salas.get(salaId) ?? null;
     }
@@ -92,6 +139,9 @@ export class SalaManager {
 
     _entrar(sala, player) {
         sala.controller.entrarNaSala(player);
+        if (sala.jogadores.length === sala.numberPlayers) {
+            sala.controller.agendarInicio(this.tempoEsperaInicioMs);
+        }
     }
 
     _gerarSalaId() {

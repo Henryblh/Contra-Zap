@@ -57,7 +57,7 @@ controller.on('rodadaFinalizada', ({ numero, resultado }) => {
     console.log(`\n===== Fim da rodada ${numero} =====`);
 });
 
-controller.on('jogadoresEliminados', (eliminados) => {
+controller.on('jogadoresEliminados', ({ eliminados }) => {
     for (const { nome, hp } of eliminados) {
         console.log(`💀 ${nome} foi eliminado (hp ${hp})`);
     }
