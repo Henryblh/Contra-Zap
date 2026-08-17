@@ -1,3 +1,16 @@
+# Dependências (instaláveis via `npm install`, nunca fazem sentido versionadas)
+/node_modules/
+
+# Logs e variáveis de ambiente
+npm-debug.log*
+*.log
+.env
+.env.local
+
+# Arquivos de SO
+.DS_Store
+Thumbs.db
+
 # Default ignored files
 /shelf/
 /.idea/
@@ -7,7 +20,10 @@
 /dataSources/
 /dataSources.local.xml
 
+# Testes escritos localmente, nunca commitados no repositório do grupo —
+# mantidos só locais de propósito (não é responsabilidade individual de
+# quem está nesta branch decidir a estratégia de testes automatizados do
+# grupo). Ver conversa/decisão do time antes de tirar isso daqui.
 /conexao/login.test.js
 /conexao/SalaManager.test.js
 /conexao/socketServer.test.js
-
