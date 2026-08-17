@@ -5,7 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node Server.js",
-    "test": "echo \"Error: no test specified\" && exit 1"
+    "test": "node --test"
   },
   "private": true,
   "keywords": [],
@@ -13,7 +13,10 @@
   "license": "ISC",
   "description": "",
   "dependencies": {
+    "bcryptjs": "^3.0.3",
+    "better-sqlite3": "^13.0.3",
     "express": "^5.2.1",
-    "socket.io": "^4.8.3"
+    "socket.io": "^4.8.3",
+    "socket.io-client": "^4.8.3"
   }
 }
