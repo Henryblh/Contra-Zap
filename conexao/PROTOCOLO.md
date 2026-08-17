@@ -102,10 +102,14 @@ itens adiados abaixo).
 
 ## O que fica fora deste marco (decisão adiada, não esquecida)
 
-- Reconexão (o que acontece se o socket cair e voltar; token opaco em vez de
-  JWT é uma escolha explícita pra depois, ver `conexao/login.js`).
+- Reconexão (o que acontece se o socket cair e voltar). A camada de
+  identidade já dá suporte a isso — token é JWT assinado (`conexao/jwt.js`),
+  verificável sem estado e sobrevive a restart do processo — mas ainda não
+  existe um evento `reconectar` nem um `Map<playerId, socket.id>` do lado do
+  `socketServer.js` (hoje `jogadorPorSocket` é indexado por `socket.id`, que
+  troca a cada reconexão). Falta também o `GameController` saber esperar a
+  jogada de um jogador real (hoje ele resolve a partida inteira num loop
+  síncrono) — pré-requisito pra reconectar *durante* uma partida em
+  andamento, não só na sala de espera.
 - Sair da sala voluntariamente antes da partida começar.
 - Iniciar a partida (ligar `entrarSala` cheia a `GameController.iniciarPartida()`).
-- Token assinado (JWT): senha já é validada contra hash em `banco.sqlite`
-  (`conexao/db.js`), mas a sessão em si ainda é um token opaco em memória —
-  não sobrevive a restart do processo.

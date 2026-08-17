@@ -15,6 +15,10 @@ Thumbs.db
 /banco.sqlite
 /banco.sqlite-*
 
+# Segredo de assinatura do JWT (gerado automaticamente na primeira execução
+# se JWT_SECRET não estiver no ambiente) — nunca deve ir pro git
+/jwt.secret
+
 # Default ignored files
 /shelf/
 /.idea/
@@ -31,3 +35,4 @@ Thumbs.db
 /conexao/login.test.js
 /conexao/SalaManager.test.js
 /conexao/socketServer.test.js
+/conexao/jwt.test.js

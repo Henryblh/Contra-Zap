@@ -47,6 +47,8 @@ conexao/           -> camada de sala/rede, separada das regras do jogo
   eventos.js          -> vocabulário do protocolo (nomes de evento, códigos de erro)
   PROTOCOLO.md        -> contrato dos eventos socket.io (payloads, fluxo, erros)
   db.js               -> persistência de usuários em SQLite (única peça que sabe SQL)
+  jwt.js              -> emite e verifica o token de sessão (JWT assinado, HS256)
+  jwt.test.js          -> testes do token
   login.js            -> autentica nome/senha contra o banco e emite token de sessão
   login.test.js        -> testes do login
   SalaManager.js      -> cria salas e valida entrada de jogadores (sem saber de socket.io)
@@ -57,6 +59,7 @@ banco.json         -> fixture inicial de usuários (nome/senha em texto puro), u
                       semear o banco.sqlite na primeira execução
 banco.sqlite       -> banco de verdade (gerado automaticamente, não versionado) — senha
                       sempre em hash (bcrypt), nunca texto puro
+jwt.secret         -> segredo de assinatura do JWT (gerado automaticamente, não versionado)
 Main.js            -> harness de teste: escuta os eventos do GameController e imprime no console
 Main2.js           -> harness de um jogador de verdade: login + criar/entrar em sala via socket.io
 index.js           -> ponto de entrada do módulo (exporta as classes do jogo)
@@ -80,10 +83,11 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
 ## Status atual
 
 - ✅ Regras da partida completas (apostas, vazas, manilha, eliminação por hp).
-- ✅ Login (nome/senha contra banco SQLite com senha em hash, token de sessão em memória) e
-  sala multiplayer (criar, entrar, listar salas abertas) funcionando ponta a ponta via
-  socket.io — testado com 4 conexões reais simultâneas.
-- 🚧 Token de sessão ainda é opaco em memória (não sobrevive a restart) — troca por JWT
-  assinado é o próximo passo da camada de identidade.
-- 🚧 Iniciar a partida a partir da sala cheia (ligar ao `GameController`) — depois do JWT.
+- ✅ Login (nome/senha contra banco SQLite com senha em hash) e token de sessão assinado
+  (JWT, expira em 6h, sobrevive a restart do processo) e sala multiplayer (criar, entrar,
+  listar salas abertas) funcionando ponta a ponta via socket.io — testado com 4 conexões
+  reais simultâneas.
+- 🚧 Iniciar a partida a partir da sala cheia (ligar ao `GameController`) — próximo marco.
+- 🚧 Reconexão (socket cair e voltar durante login/espera de sala) — a camada de token já
+  suporta, falta o evento/fluxo do lado do protocolo.
 - 🚧 Interface web — em desenvolvimento.
