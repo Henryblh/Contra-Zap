@@ -35,7 +35,10 @@ Isso simula uma partida inteira com 4 jogadores fixos (jogadas automáticas) e i
    quer criar uma sala nova ou entrar numa já aberta. O primeiro cria (e recebe
    um `salaId` pra passar pros outros); os demais escolhem "entrar" e veem a
    sala na lista. Todo mundo na sala vê a lista de jogadores atualizar em
-   tempo real conforme cada um entra.
+   tempo real conforme cada um entra. Quando a sala lota (padrão 4), a
+   partida começa sozinha 15s depois — cada terminal só imprime a própria
+   mão (`suaMao` é privado, roteado por jogador) e o resto da partida
+   (manilha, jogadas, vazas, vencedor) em tempo real.
 
 ## Estrutura do projeto
 
@@ -47,6 +50,8 @@ conexao/           -> camada de sala/rede, separada das regras do jogo
   eventos.js          -> vocabulário do protocolo (nomes de evento, códigos de erro)
   PROTOCOLO.md        -> contrato dos eventos socket.io (payloads, fluxo, erros)
   db.js               -> persistência de usuários em SQLite (única peça que sabe SQL)
+  jwt.js              -> emite e verifica o token de sessão (JWT assinado, HS256)
+  jwt.test.js          -> testes do token
   login.js            -> autentica nome/senha contra o banco e emite token de sessão
   login.test.js        -> testes do login
   SalaManager.js      -> cria salas e valida entrada de jogadores (sem saber de socket.io)
@@ -57,6 +62,7 @@ banco.json         -> fixture inicial de usuários (nome/senha em texto puro), u
                       semear o banco.sqlite na primeira execução
 banco.sqlite       -> banco de verdade (gerado automaticamente, não versionado) — senha
                       sempre em hash (bcrypt), nunca texto puro
+jwt.secret         -> segredo de assinatura do JWT (gerado automaticamente, não versionado)
 Main.js            -> harness de teste: escuta os eventos do GameController e imprime no console
 Main2.js           -> harness de um jogador de verdade: login + criar/entrar em sala via socket.io
 index.js           -> ponto de entrada do módulo (exporta as classes do jogo)
@@ -80,10 +86,17 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
 ## Status atual
 
 - ✅ Regras da partida completas (apostas, vazas, manilha, eliminação por hp).
-- ✅ Login (nome/senha contra banco SQLite com senha em hash, token de sessão em memória) e
-  sala multiplayer (criar, entrar, listar salas abertas) funcionando ponta a ponta via
-  socket.io — testado com 4 conexões reais simultâneas.
-- 🚧 Token de sessão ainda é opaco em memória (não sobrevive a restart) — troca por JWT
-  assinado é o próximo passo da camada de identidade.
-- 🚧 Iniciar a partida a partir da sala cheia (ligar ao `GameController`) — depois do JWT.
+- ✅ Login (nome/senha contra banco SQLite com senha em hash) e token de sessão assinado
+  (JWT, expira em 6h, sobrevive a restart do processo) e sala multiplayer (criar, entrar,
+  listar salas abertas) funcionando ponta a ponta via socket.io — testado com 4 conexões
+  reais simultâneas.
+- ✅ Sala cheia → partida começa sozinha (15s de espera, ou na hora se o dono/adm mandar
+  `forcarInicio`). Todo evento de jogo é retransmitido pro cliente certo: broadcast de
+  sala pra informação pública (jogadas, vazas, manilha, placar), e privado por jogador
+  (`suaMao`, via sala pessoal `jogador:<id>`) pra mão de cada um — testado ponta a ponta
+  com 4 conexões reais confirmando que ninguém vê a mão de outro jogador.
+- 🚧 Reconexão (socket cair e voltar durante login/espera/partida) — a camada de token e a
+  sala pessoal por jogador já suportam; falta o evento/fluxo do lado do protocolo, e o
+  `GameController` ainda roda a partida inteira num loop síncrono (sem esperar jogada real).
+- 🚧 Sair da sala voluntariamente antes da partida começar.
 - 🚧 Interface web — em desenvolvimento.

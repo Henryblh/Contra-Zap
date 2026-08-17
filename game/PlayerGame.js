@@ -2,17 +2,15 @@
 import { Player } from './Player.js';
 
 export class PlayerGame extends Player {
-    constructor(playerBase, gameposition) {
+    constructor(playerBase) {
         super(playerBase.nome, playerBase.senha, playerBase.rate);
         this.id = playerBase.id;
-
-        // Use the setter here by assigning the value directly
-        this.gameId = gameposition;
 
         this.hp = 3;
         this._steak = 0;
         this.mao = [];
         this.aposta = 0;
+        this.adm = false;
     }
 
     comprarCarta(carta) {
@@ -24,10 +22,6 @@ export class PlayerGame extends Player {
     }
 
 
-    get gameId() {return this._gameposition;}
-
-    set gameId(valor) {this._gameposition = valor;}
-
     get aposta() {return this._aposta;}
 
     set aposta(valor) {this._aposta = valor;}
@@ -37,4 +31,9 @@ export class PlayerGame extends Player {
 
     get steak() {return this._steak;}
     set steak(valor) {this._steak = valor;}
+
+    // Uso futuro: dono/moderador da sala (kick, forçar início, trocar
+    // configuração antes da partida começar). Ninguém seta isso ainda.
+    get adm() {return this._adm;}
+    set adm(valor) {this._adm = valor;}
 }

@@ -1,19 +1,12 @@
 // login.js
 // Autenticação e sessão do jogador: valida nome/senha contra o banco SQLite
-// (conexao/db.js) e emite um token opaco guardado em memória.
+// (conexao/db.js) e emite um token de sessão assinado (conexao/jwt.js).
 // Não sabe nada sobre socket.io — devolve só { token, player }; quem liga
 // isso a uma conexão real é a camada de rede.
-//
-// 📌 TODO(JWT): quando a conexão entre processos (servidor <-> outros
-// serviços) já estiver estabelecida, trocar este token opaco por um JWT
-// assinado (payload com id/nome, expiração, verificável sem precisar
-// consultar o Map `sessoes` abaixo). Por enquanto, opaco em memória é
-// suficiente: mais simples e revogável na hora, mas não sobrevive a um
-// restart do processo.
-import { randomUUID } from 'node:crypto';
 import { Player } from '../game/Player.js';
 import { CodigosErro } from './eventos.js';
 import { buscarUsuarioPorNome, verificarSenha } from './db.js';
+import { emitirToken, verificarToken } from './jwt.js';
 
 export class ErroLogin extends Error {
     constructor(codigo, mensagem) {
@@ -23,16 +16,12 @@ export class ErroLogin extends Error {
     }
 }
 
-// token opaco -> Player autenticado. Só existe em memória: some se o
-// processo reiniciar. Aceitável para este marco (sem persistência ainda).
-const sessoes = new Map();
-
-// Autentica nome/senha contra o banco. Sucesso: cria uma sessão nova (mesmo
-// que o nome já tenha outra sessão ativa — uma sessão por login, não por
-// nome) e devolve { token, player }. Falha: lança ErroLogin.
+// Autentica nome/senha contra o banco e devolve { token, player }.
+// Falha: lança ErroLogin.
 //
 // O id do player vem da linha do usuário no banco, então é o mesmo em todo
-// login daquela conta (diferente do token, que é novo a cada vez).
+// login daquela conta (diferente do token, que é novo a cada vez — ver
+// jwtid em conexao/jwt.js).
 export function login(nome, senha) {
     const usuario = buscarUsuarioPorNome(nome);
 
@@ -46,14 +35,21 @@ export function login(nome, senha) {
     const player = new Player(usuario.nome, null);
     player.id = usuario.id;
 
-    const token = randomUUID();
-    sessoes.set(token, player);
+    const token = emitirToken(player);
 
     return { token, player };
 }
 
-// Devolve o Player dono do token, ou null se o token não existe (nunca
-// logou, ou a sessão em memória se perdeu num restart do processo).
+// Devolve um Player reconstruído a partir dos dados do token, ou null se o
+// token for inválido, tiver sido adulterado ou expirado. Diferente do
+// player devolvido por login(), este é sempre uma instância nova — não há
+// mais sessão em memória guardando identidade de objeto, então a
+// comparação que importa é por id/nome, não por referência.
 export function validarToken(token) {
-    return sessoes.get(token) ?? null;
+    const dados = verificarToken(token);
+    if (!dados) return null;
+
+    const player = new Player(dados.nome, null);
+    player.id = dados.id;
+    return player;
 }

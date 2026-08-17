@@ -1,30 +1,80 @@
 // GameController.js
-// Orquestra uma partida inteira (Looby -> Game -> RodadaGame -> Mesa) e expõe
-// o andamento do jogo como eventos, em vez de console.log espalhado.
+// Dona da sala de espera (lista de jogadores antes da partida começar) e
+// orquestra a partida inteira (Game -> RodadaGame -> Mesa) quando ela
+// começa, expondo o andamento como eventos em vez de console.log espalhado.
 //
 // Isso serve dois consumidores ao mesmo tempo, sem duplicar a lógica de regras:
 //  - Main.js: assina os eventos e imprime no console (harness de teste local)
 //  - Server.js (futuro): assina os eventos e faz io.emit(...) para os clientes via socket.io
 import { EventEmitter } from 'node:events';
-import { Looby } from './Looby.js';
+import { Game } from './Game.js';
+import { PlayerGame } from './PlayerGame.js';
 
 export class GameController extends EventEmitter {
     constructor({ numberPlayers, roundStart, randomShuffle } = {}) {
         super();
-        this.looby = new Looby(numberPlayers, roundStart, randomShuffle);
+        this.numberPlayers = numberPlayers || 4;
+        this.roundStart = roundStart || 3;
+        this.randomShuffle = randomShuffle;
+        this.jogadores = [];
         this.game = null;
         this.rodada = null;
         this.numeroRodada = 0;
+        this._timerInicio = null;
     }
 
+    // Sala de espera: transforma o Player que entrou num PlayerGame e guarda
+    // na lista até a partida começar. Ordem de chegada é a própria posição
+    // no array — nenhum campo à parte guarda isso.
     entrarNaSala(player) {
-        this.looby.addJogador(player);
+        this.jogadores.push(new PlayerGame(player));
         this.emit('jogadorEntrou', { id: player.id, nome: player.nome });
         return this;
     }
 
+    // Chamado quando a sala lota: dá um tempo de espera antes de começar de
+    // verdade (dá chance de cancelar via forcarInicio, ou simplesmente pra
+    // não começar no instante exato que a última pessoa entra). Idempotente
+    // — chamar de novo com a partida já agendada ou já iniciada não faz nada.
+    agendarInicio(tempoEsperaMs) {
+        if (this.game || this._timerInicio) return;
+
+        this._timerInicio = setTimeout(() => this.iniciarPartida(), tempoEsperaMs);
+        this._timerInicio.unref?.(); // não deve segurar o processo vivo (testes, shutdown)
+        this.emit('partidaIniciandoEm', { segundos: tempoEsperaMs / 1000 });
+    }
+
+    // Pura consulta — não lança, não muda estado. Quem decide se isso vira
+    // um erro de protocolo (NAO_AUTORIZADO) é a camada de sala, não aqui.
+    jogadorEhAdm(playerId) {
+        return this.jogadores.some(jogador => jogador.id === playerId && jogador.adm);
+    }
+
+    // Pula a espera de agendarInicio e começa na hora. Quem valida se quem
+    // pediu tem permissão é a camada de sala (via jogadorEhAdm), antes de
+    // chamar isto.
+    forcarInicio() {
+        if (this._timerInicio) {
+            clearTimeout(this._timerInicio);
+            this._timerInicio = null;
+        }
+        this.iniciarPartida();
+    }
+
     iniciarPartida() {
-        this.game = this.looby.startgame();
+        if (this.game) return; // idempotente — evita reiniciar se o timer e um forcarInicio colidirem
+
+        if (this._timerInicio) {
+            clearTimeout(this._timerInicio);
+            this._timerInicio = null;
+        }
+
+        this.game = new Game({
+            numberPlayers: this.numberPlayers,
+            roundStart: this.roundStart,
+            randomShuffle: this.randomShuffle,
+            jogadores: [...this.jogadores],
+        });
         this.game.setstartsequence();
 
         this.numeroRodada = 1;
@@ -40,6 +90,7 @@ export class GameController extends EventEmitter {
 
         rodada.darCartas();
         this.emit('cartasDistribuidas', rodada.gameOrder.map(j => ({
+            id: j.id,
             nome: j.nome,
             mao: j.mao.map(c => c.toString())
         })));
@@ -107,7 +158,7 @@ export class GameController extends EventEmitter {
 
         const eliminados = this.game.eliminarZerados();
         if (eliminados.length > 0) {
-            this.emit('jogadoresEliminados', eliminados.map(j => ({ nome: j.nome, hp: j.hp })));
+            this.emit('jogadoresEliminados', { eliminados: eliminados.map(j => ({ nome: j.nome, hp: j.hp })) });
         }
         this.rodada.resetarApostasSteaks();
         this.game.girarOrdem();

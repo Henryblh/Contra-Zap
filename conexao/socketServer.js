@@ -34,6 +34,10 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
             responder(ack, () => {
                 const { token, player } = login(nome, senha);
                 jogadorPorSocket.set(socket.id, player);
+                // Sala pessoal do jogador — endereçável por id de conta (estável),
+                // não por socket.id (muda a cada reconexão). É pra cá que vai
+                // qualquer informação privada (ex.: SUA_MAO).
+                socket.join(`jogador:${player.id}`);
                 return { nome: player.nome, token };
             });
         });
@@ -43,6 +47,7 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
                 const player = exigirJogador();
                 const sala = salaManager.criarSala(player, config);
                 socket.join(sala.salaId);
+                ligarControllerASala(io, sala);
                 notificarSala(io, sala);
                 return { salaId: sala.salaId, numberPlayers: sala.numberPlayers };
             });
@@ -69,6 +74,14 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
             });
         });
 
+        socket.on(EventosCliente.FORCAR_INICIO, ({ salaId } = {}, ack) => {
+            responder(ack, () => {
+                const player = exigirJogador();
+                salaManager.forcarInicio(salaId, player);
+                return {};
+            });
+        });
+
         socket.on('disconnect', () => {
             jogadorPorSocket.delete(socket.id);
         });
@@ -78,13 +91,43 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
 }
 
 function resumoJogadores(sala) {
-    return sala.jogadores.map(jogador => ({ nome: jogador.nome, gameId: jogador.gameId }));
+    return sala.jogadores.map(jogador => ({ nome: jogador.nome }));
 }
 
 function notificarSala(io, sala) {
     io.to(sala.salaId).emit(EventosServidor.LISTA_JOGADORES, {
         salaId: sala.salaId,
         jogadores: resumoJogadores(sala),
+    });
+}
+
+// Assina os eventos do GameController da sala e retransmite pros sockets.
+// Chamado uma vez só, na criação da sala — o controller vive tanto quanto a
+// sala, então essa assinatura vale pro resto da vida dela (espera + partida
+// inteira). Todo evento é broadcast pra sala, exceto cartasDistribuidas, que
+// é privado por natureza (a mão de cada jogador só pode ir pra ele).
+function ligarControllerASala(io, sala) {
+    const { salaId, controller } = sala;
+
+    const retransmitir = (evento) => {
+        controller.on(evento, (dados) => io.to(salaId).emit(evento, { salaId, ...dados }));
+    };
+
+    retransmitir(EventosServidor.PARTIDA_INICIANDO_EM);
+    retransmitir(EventosServidor.NOVA_RODADA_INICIADA);
+    retransmitir(EventosServidor.MANILHA_VIRADA);
+    retransmitir(EventosServidor.APOSTA_FEITA);
+    retransmitir(EventosServidor.TURNO_JOGADOR);
+    retransmitir(EventosServidor.CARTA_JOGADA);
+    retransmitir(EventosServidor.VAZA_FINALIZADA);
+    retransmitir(EventosServidor.RODADA_FINALIZADA);
+    retransmitir(EventosServidor.JOGADORES_ELIMINADOS);
+    retransmitir(EventosServidor.JOGO_FINALIZADO);
+
+    controller.on('cartasDistribuidas', (maos) => {
+        for (const { id, mao } of maos) {
+            io.to(`jogador:${id}`).emit(EventosServidor.SUA_MAO, { salaId, mao });
+        }
     });
 }
 
