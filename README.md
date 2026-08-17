@@ -18,7 +18,7 @@ Motor de regras de um jogo de cartas estilo truco, jogado no console por enquant
    node Main.js
    ```
 
-Isso simula uma partida inteira com 4 jogadores fixos (jogadas automáticas) e imprime tudo no terminal: mãos, manilha, jogadas, vazas e o vencedor final.
+Isso simula uma partida inteira com 4 jogadores fixos (jogadas automáticas — sempre a última carta da mão) e imprime tudo no terminal: mãos, manilha, jogadas, vazas e o vencedor final.
 
 ## Como testar a sala multiplayer (login + criar/entrar em sala)
 
@@ -38,7 +38,10 @@ Isso simula uma partida inteira com 4 jogadores fixos (jogadas automáticas) e i
    tempo real conforme cada um entra. Quando a sala lota (padrão 4), a
    partida começa sozinha 15s depois — cada terminal só imprime a própria
    mão (`suaMao` é privado, roteado por jogador) e o resto da partida
-   (manilha, jogadas, vazas, vencedor) em tempo real.
+   (manilha, jogadas, vazas, vencedor) em tempo real. **Na sua vez**, o
+   terminal lista as cartas da mão numeradas e pergunta qual jogar — a
+   partida só segue depois que você escolhe (sem timeout ainda: se ninguém
+   responder, ela fica esperando).
 
 ## Estrutura do projeto
 
@@ -95,8 +98,18 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
   sala pra informação pública (jogadas, vazas, manilha, placar), e privado por jogador
   (`suaMao`, via sala pessoal `jogador:<id>`) pra mão de cada um — testado ponta a ponta
   com 4 conexões reais confirmando que ninguém vê a mão de outro jogador.
-- 🚧 Reconexão (socket cair e voltar durante login/espera/partida) — a camada de token e a
-  sala pessoal por jogador já suportam; falta o evento/fluxo do lado do protocolo, e o
-  `GameController` ainda roda a partida inteira num loop síncrono (sem esperar jogada real).
-- 🚧 Sair da sala voluntariamente antes da partida começar.
+- ✅ Sair da sala (`sairSala`) antes da partida começar — voluntário ou por desconexão (aba
+  fechada, rede caiu tratam igual). Se quem sai é o dono/adm, a posição passa pro próximo;
+  sala vazia é descartada. Desconexão **depois** que a partida já começou não mexe no
+  roster do jogo, de propósito — é a base pra reconexão futura, não implementada ainda.
+- ✅ Jogada real: o `GameController` pausa em cada turno e espera `jogarCarta` (índice da
+  carta na mão) em vez de jogar sozinho — `Main2.js` já pede pra escolher a carta na sua
+  vez. Isso tira o principal bloqueador estrutural que faltava pra reconexão de verdade
+  (agora existe um "onde" pausar); ainda não tem timeout/bot pra quando ninguém responde.
+- 🚧 Reconexão de verdade (socket cair e voltar e continuar de onde parou) — token, sala
+  pessoal por jogador, roster intacto pós-desconexão e agora a pausa real por turno já dão
+  a base; falta só o evento/fluxo do lado do protocolo (reidentificar `socket.id` novo com
+  `player.id` já em jogo).
+- 🚧 Timeout/bot pra quando o jogador da vez não responde — hoje a partida trava esperando
+  pra sempre.
 - 🚧 Interface web — em desenvolvimento.

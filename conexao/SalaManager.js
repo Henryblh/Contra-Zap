@@ -121,6 +121,55 @@ export class SalaManager {
         return sala;
     }
 
+    // Joga uma carta em nome do jogador — só vale numa sala com partida em
+    // andamento. `indice` é a posição da carta na mão dele (0-based); a
+    // validação de "é a vez dele mesmo?" e "esse índice existe na mão dele?"
+    // é toda do GameController (jogarCarta) — aqui só traduz o resultado
+    // pro vocabulário de erro do protocolo.
+    jogarCarta(salaId, player, indice) {
+        const sala = this.salas.get(salaId);
+        if (!sala) {
+            throw new ErroSala(CodigosErro.SALA_NAO_ENCONTRADA, `Sala "${salaId}" não existe.`);
+        }
+        if (!sala.iniciada) {
+            throw new ErroSala(CodigosErro.SALA_NAO_INICIADA, 'A partida desta sala ainda não começou.');
+        }
+
+        const resultado = sala.controller.jogarCarta(player.id, indice);
+        if (!resultado.ok) {
+            if (resultado.motivo === 'NAO_E_SUA_VEZ') {
+                throw new ErroSala(CodigosErro.NAO_E_SUA_VEZ, 'Não é a sua vez de jogar.');
+            }
+            throw new ErroSala(CodigosErro.CARTA_INVALIDA, 'Essa carta não existe na sua mão.');
+        }
+
+        return sala;
+    }
+
+    // Tira o jogador da sala antes da partida começar — saída voluntária ou
+    // limpeza de desconexão (ver socketServer.js, que chama isto nos dois
+    // casos e engole o erro no caso de desconexão, já que não tem cliente
+    // pra responder). Se a sala ficar vazia, é descartada — sem isso, salas
+    // abandonadas ficariam acumulando pra sempre em memória.
+    sairSala(salaId, player) {
+        const sala = this.salas.get(salaId);
+        if (!sala) {
+            throw new ErroSala(CodigosErro.SALA_NAO_ENCONTRADA, `Sala "${salaId}" não existe.`);
+        }
+        if (sala.iniciada) {
+            throw new ErroSala(CodigosErro.SALA_JA_INICIADA, 'Não dá pra sair de uma sala cuja partida já começou.');
+        }
+        if (!sala.controller.removerJogador(player.id)) {
+            throw new ErroSala(CodigosErro.NAO_ESTA_NA_SALA, 'Você não está nesta sala.');
+        }
+
+        if (sala.jogadores.length === 0) {
+            this.salas.delete(salaId);
+        }
+
+        return sala;
+    }
+
     obterSala(salaId) {
         return this.salas.get(salaId) ?? null;
     }

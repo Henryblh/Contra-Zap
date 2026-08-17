@@ -4,8 +4,9 @@
 // e entra num loop pra criar uma sala nova ou entrar numa já aberta. Depois
 // de entrar numa sala, imprime a lista de jogadores a cada atualização e,
 // quando a sala lota, a partida inteira (mão própria, jogadas, vazas,
-// vencedor) — só não manda forcarInicio ainda: pra isso hoje precisa emitir
-// o evento manualmente, não tem prompt de CLI pra isso.
+// vencedor). Na sua vez, pede pra escolher a carta pelo número (1, 2, 3...)
+// — só não manda forcarInicio ainda: pra isso hoje precisa emitir o evento
+// manualmente, não tem prompt de CLI pra isso.
 //
 // Rodar (em dois terminais separados):
 //   npm start      -> sobe o servidor em http://localhost:3000
@@ -95,10 +96,32 @@ async function menuSala(socket) {
     }
 }
 
+// Pergunta qual carta jogar (1, 2, 3...), manda jogarCarta e tenta de novo
+// se o servidor recusar (fora da vez, índice inválido) — a validação de
+// verdade é toda do servidor, aqui é só UI.
+async function escolherCarta(socket, salaId, minhaMao) {
+    console.log(`\nSua vez! Cartas na mão:`);
+    minhaMao.forEach((carta, i) => console.log(`  ${i + 1}) ${carta}`));
+
+    while (true) {
+        const escolha = await pergunta('Qual carta jogar (número)? ');
+        const indice = Number(escolha) - 1;
+
+        try {
+            await chamar(socket, 'jogarCarta', { salaId, indice });
+            minhaMao.splice(indice, 1);
+            return;
+        } catch (erro) {
+            console.log(`Não deu: ${erro.message}`);
+        }
+    }
+}
+
 const socket = await conectar();
-await fazerLogin(socket);
+const { nome: meuNome } = await fazerLogin(socket);
 const salaId = await menuSala(socket);
-rl.close();
+
+let minhaMao = [];
 
 socket.on('listaJogadores', (payload) => {
     if (payload.salaId !== salaId) return;
@@ -117,13 +140,18 @@ socket.on('novaRodadaIniciada', ({ numero, cartas }) => {
     console.log(`\n===== Rodada ${numero} (${cartas} cartas) =====`);
 });
 socket.on('suaMao', ({ mao }) => {
-    console.log(`Sua mão: ${mao.join(', ')}`);
+    minhaMao = mao;
+    console.log(`Sua mão: ${mao.map((c, i) => `${i + 1}) ${c}`).join('  ')}`);
 });
 socket.on('manilhaVirada', ({ vira, viraValor }) => {
     console.log(`Vira: ${vira} | Manilha: ${viraValor}`);
 });
 socket.on('turnoJogador', ({ jogador }) => {
-    console.log(`Vez de: ${jogador}`);
+    if (jogador !== meuNome) {
+        console.log(`Vez de: ${jogador}`);
+        return;
+    }
+    escolherCarta(socket, salaId, minhaMao);
 });
 socket.on('cartaJogada', ({ jogador, carta, status }) => {
     console.log(`> ${jogador} jogou ${carta} (${status.status})`);

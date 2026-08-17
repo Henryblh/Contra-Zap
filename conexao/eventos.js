@@ -16,6 +16,8 @@ export const EventosCliente = {
     ENTRAR_SALA: 'entrarSala',  // { salaId } -> ack: { ok, salaId, numberPlayers, jogadores }
     LISTAR_SALAS: 'listarSalas', // {} -> ack: { ok, salas: [{ salaId, numberPlayers, jogadoresAtual }] }
     FORCAR_INICIO: 'forcarInicio', // { salaId } -> ack: { ok } — só o adm da sala, só com a sala cheia
+    SAIR_SALA: 'sairSala',       // { salaId } -> ack: { ok } — só antes da partida começar
+    JOGAR_CARTA: 'jogarCarta',   // { salaId, indice } -> ack: { ok } — indice é 0-based, posição na mão
 };
 
 // Eventos empurrados pelo servidor sem ter sido pedidos por um ack.
@@ -30,7 +32,7 @@ export const EventosServidor = {
     SUA_MAO: 'suaMao',                          // { salaId, mao: string[] } — PRIVADO
     MANILHA_VIRADA: 'manilhaVirada',            // { salaId, vira, viraValor }
     APOSTA_FEITA: 'apostaFeita',                // { salaId, jogador, aposta }
-    TURNO_JOGADOR: 'turnoJogador',              // { salaId, jogador }
+    TURNO_JOGADOR: 'turnoJogador',              // { salaId, id, jogador } — id de quem tem que jogar
     CARTA_JOGADA: 'cartaJogada',                // { salaId, jogador, carta, status }
     VAZA_FINALIZADA: 'vazaFinalizada',          // { salaId, vencedor, carta }
     RODADA_FINALIZADA: 'rodadaFinalizada',      // { salaId, numero, resultado }
@@ -46,8 +48,12 @@ export const CodigosErro = {
     SALA_CHEIA: 'SALA_CHEIA',
     SALA_NAO_CHEIA: 'SALA_NAO_CHEIA',       // forcarInicio antes da sala lotar
     SALA_JA_INICIADA: 'SALA_JA_INICIADA',
+    SALA_NAO_INICIADA: 'SALA_NAO_INICIADA', // jogarCarta numa sala cuja partida ainda não começou
     JA_ESTA_NA_SALA: 'JA_ESTA_NA_SALA',
+    NAO_ESTA_NA_SALA: 'NAO_ESTA_NA_SALA',   // sairSala por quem não está (mais) nessa sala
     NAO_AUTORIZADO: 'NAO_AUTORIZADO',       // forcarInicio por quem não é o adm da sala
+    NAO_E_SUA_VEZ: 'NAO_E_SUA_VEZ',         // jogarCarta fora da sua vez
+    CARTA_INVALIDA: 'CARTA_INVALIDA',       // jogarCarta com índice fora da mão
     USUARIO_NAO_ENCONTRADO: 'USUARIO_NAO_ENCONTRADO', // login: nome não existe no banco
     SENHA_INCORRETA: 'SENHA_INCORRETA',               // login: nome existe, senha não bate
     ERRO_INTERNO: 'ERRO_INTERNO',                     // exceção inesperada no servidor (não deveria acontecer)
