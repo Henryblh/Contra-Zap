@@ -46,13 +46,17 @@ game/              -> regras do jogo (baralho, cartas, mesa, rodada, jogadores)
 conexao/           -> camada de sala/rede, separada das regras do jogo
   eventos.js          -> vocabulário do protocolo (nomes de evento, códigos de erro)
   PROTOCOLO.md        -> contrato dos eventos socket.io (payloads, fluxo, erros)
-  login.js            -> autentica nome/senha contra banco.json e emite token de sessão
+  db.js               -> persistência de usuários em SQLite (única peça que sabe SQL)
+  login.js            -> autentica nome/senha contra o banco e emite token de sessão
   login.test.js        -> testes do login
   SalaManager.js      -> cria salas e valida entrada de jogadores (sem saber de socket.io)
   SalaManager.test.js -> testes da camada de sala
   socketServer.js     -> liga o protocolo a sockets de verdade (única peça que conhece socket.io)
   socketServer.test.js -> testes de integração ponta a ponta (servidor + clientes reais)
-banco.json         -> "banco" provisório de usuários (nome/senha em texto puro — dívida técnica assumida)
+banco.json         -> fixture inicial de usuários (nome/senha em texto puro), usada só pra
+                      semear o banco.sqlite na primeira execução
+banco.sqlite       -> banco de verdade (gerado automaticamente, não versionado) — senha
+                      sempre em hash (bcrypt), nunca texto puro
 Main.js            -> harness de teste: escuta os eventos do GameController e imprime no console
 Main2.js           -> harness de um jogador de verdade: login + criar/entrar em sala via socket.io
 index.js           -> ponto de entrada do módulo (exporta as classes do jogo)
@@ -76,8 +80,10 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
 ## Status atual
 
 - ✅ Regras da partida completas (apostas, vazas, manilha, eliminação por hp).
-- ✅ Login (nome/senha contra `banco.json`, token de sessão em memória) e sala multiplayer
-  (criar, entrar, listar salas abertas) funcionando ponta a ponta via socket.io — testado com
-  4 conexões reais simultâneas.
-- 🚧 Iniciar a partida a partir da sala cheia (ligar ao `GameController`) — próximo marco.
+- ✅ Login (nome/senha contra banco SQLite com senha em hash, token de sessão em memória) e
+  sala multiplayer (criar, entrar, listar salas abertas) funcionando ponta a ponta via
+  socket.io — testado com 4 conexões reais simultâneas.
+- 🚧 Token de sessão ainda é opaco em memória (não sobrevive a restart) — troca por JWT
+  assinado é o próximo passo da camada de identidade.
+- 🚧 Iniciar a partida a partir da sala cheia (ligar ao `GameController`) — depois do JWT.
 - 🚧 Interface web — em desenvolvimento.

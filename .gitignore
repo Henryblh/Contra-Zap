@@ -11,6 +11,10 @@ npm-debug.log*
 .DS_Store
 Thumbs.db
 
+# Banco SQLite local (gerado a partir de banco.json na primeira execução)
+/banco.sqlite
+/banco.sqlite-*
+
 # Default ignored files
 /shelf/
 /.idea/

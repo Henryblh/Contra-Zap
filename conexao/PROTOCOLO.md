@@ -106,5 +106,6 @@ itens adiados abaixo).
   JWT é uma escolha explícita pra depois, ver `conexao/login.js`).
 - Sair da sala voluntariamente antes da partida começar.
 - Iniciar a partida (ligar `entrarSala` cheia a `GameController.iniciarPartida()`).
-- Autenticação de verdade (senha em `banco.json` hoje é texto puro, sem hash —
-  decisão explícita de escopo, não descuido).
+- Token assinado (JWT): senha já é validada contra hash em `banco.sqlite`
+  (`conexao/db.js`), mas a sessão em si ainda é um token opaco em memória —
+  não sobrevive a restart do processo.

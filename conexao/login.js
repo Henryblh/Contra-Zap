@@ -1,8 +1,8 @@
 // login.js
-// Autenticação e sessão do jogador: valida nome/senha contra banco.json (o
-// "banco de verdade" vem depois) e emite um token opaco guardado em memória.
+// Autenticação e sessão do jogador: valida nome/senha contra o banco SQLite
+// (conexao/db.js) e emite um token opaco guardado em memória.
 // Não sabe nada sobre socket.io — devolve só { token, player }; quem liga
-// isso a uma conexão real é a camada de rede, numa etapa futura.
+// isso a uma conexão real é a camada de rede.
 //
 // 📌 TODO(JWT): quando a conexão entre processos (servidor <-> outros
 // serviços) já estiver estabelecida, trocar este token opaco por um JWT
@@ -11,14 +11,9 @@
 // suficiente: mais simples e revogável na hora, mas não sobrevive a um
 // restart do processo.
 import { randomUUID } from 'node:crypto';
-import { readFileSync } from 'node:fs';
-import { fileURLToPath } from 'node:url';
-import path from 'node:path';
 import { Player } from '../game/Player.js';
 import { CodigosErro } from './eventos.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const CAMINHO_BANCO = path.join(__dirname, '..', 'banco.json');
+import { buscarUsuarioPorNome, verificarSenha } from './db.js';
 
 export class ErroLogin extends Error {
     constructor(codigo, mensagem) {
@@ -32,29 +27,24 @@ export class ErroLogin extends Error {
 // processo reiniciar. Aceitável para este marco (sem persistência ainda).
 const sessoes = new Map();
 
-let proximoId = 1;
-
-function carregarBanco() {
-    const conteudo = readFileSync(CAMINHO_BANCO, 'utf-8');
-    return JSON.parse(conteudo);
-}
-
-// Autentica nome/senha contra o banco.json. Sucesso: cria uma sessão nova
-// (mesmo que o nome já tenha outra sessão ativa — uma sessão por login, não
-// por nome) e devolve { token, player }. Falha: lança ErroLogin.
+// Autentica nome/senha contra o banco. Sucesso: cria uma sessão nova (mesmo
+// que o nome já tenha outra sessão ativa — uma sessão por login, não por
+// nome) e devolve { token, player }. Falha: lança ErroLogin.
+//
+// O id do player vem da linha do usuário no banco, então é o mesmo em todo
+// login daquela conta (diferente do token, que é novo a cada vez).
 export function login(nome, senha) {
-    const banco = carregarBanco();
-    const registro = banco.find(usuario => usuario.nome === nome);
+    const usuario = buscarUsuarioPorNome(nome);
 
-    if (!registro) {
+    if (!usuario) {
         throw new ErroLogin(CodigosErro.USUARIO_NAO_ENCONTRADO, `Usuário "${nome}" não encontrado.`);
     }
-    if (registro.senha !== senha) {
+    if (!verificarSenha(senha, usuario.senha_hash)) {
         throw new ErroLogin(CodigosErro.SENHA_INCORRETA, 'Senha incorreta.');
     }
 
-    const player = new Player(registro.nome, registro.senha);
-    player.id = proximoId++;
+    const player = new Player(usuario.nome, null);
+    player.id = usuario.id;
 
     const token = randomUUID();
     sessoes.set(token, player);
@@ -67,4 +57,3 @@ export function login(nome, senha) {
 export function validarToken(token) {
     return sessoes.get(token) ?? null;
 }
-
