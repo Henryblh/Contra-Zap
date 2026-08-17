@@ -3,11 +3,14 @@ import { createServer } from 'node:http';
 import { Server } from 'socket.io';
 import path from 'path';
 import { fileURLToPath } from 'url';
+import { registrarSocketServer } from './conexao/socketServer.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const server = createServer(app);
 const io = new Server(server);
+
+registrarSocketServer(io);
 
 // A MÁGICA ESTÁ AQUI:
 // Isso faz com que o Express sirva automaticamente o CSS e o JS da pasta public

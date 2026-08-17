@@ -1,0 +1,13 @@
+# Default ignored files
+/shelf/
+/.idea/
+# Editor-based HTTP Client requests
+/httpRequests/
+# Datasource local storage ignored files
+/dataSources/
+/dataSources.local.xml
+
+/conexao/login.test.js
+/conexao/SalaManager.test.js
+/conexao/socketServer.test.js
+
