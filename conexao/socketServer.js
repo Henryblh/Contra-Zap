@@ -78,7 +78,7 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
 }
 
 function resumoJogadores(sala) {
-    return sala.jogadores.map(jogador => ({ nome: jogador.nome, gameId: jogador.gameId }));
+    return sala.jogadores.map(jogador => ({ nome: jogador.nome }));
 }
 
 function notificarSala(io, sala) {

@@ -16,8 +16,8 @@ export class ErroSala extends Error {
     }
 }
 
-// Uma sala = um GameController (que por sua vez já possui seu próprio Looby).
-// "iniciada" não é uma flag separada de propósito: é derivada de
+// Uma sala = um GameController (que já guarda seus próprios jogadores/config
+// de sala de espera). "iniciada" não é uma flag separada de propósito: é derivada de
 // `controller.game`, pra não existir um segundo lugar de verdade que possa
 // dessincronizar do estado real do controller.
 class Sala {
@@ -26,8 +26,8 @@ class Sala {
         this.controller = new GameController(config);
     }
 
-    get numberPlayers() { return this.controller.looby.numberPlayers; }
-    get jogadores() { return this.controller.looby.jogadores; }
+    get numberPlayers() { return this.controller.numberPlayers; }
+    get jogadores() { return this.controller.jogadores; }
     get iniciada() { return this.controller.game !== null; }
 }
 

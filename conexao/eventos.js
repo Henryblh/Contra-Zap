@@ -20,7 +20,7 @@ export const EventosCliente = {
 // Único evento de verdade "empurrado" pelo servidor sem ter sido pedido por
 // um ack: broadcast pra sala inteira toda vez que a lista de jogadores muda.
 export const EventosServidor = {
-    LISTA_JOGADORES: 'listaJogadores', // { salaId, jogadores: [{ nome, gameId }] }
+    LISTA_JOGADORES: 'listaJogadores', // { salaId, jogadores: [{ nome }] }
 };
 
 export const CodigosErro = {

@@ -23,18 +23,18 @@ export class Game {
         for (let i = 0; i < this.jogadores.length; i++) {
             const index = (starterPlayer + i) % this.jogadores.length;
             this.gameOrder.push(this.jogadores[index]);
-            this.jogadores[index].gameId = index;
         }
 
         this.ordemOriginal = [...this.gameOrder];
         this.starterIndex = 0;
     }
 
-    // Remove da rotação quem chegou a 0 (ou menos) de hp
+    // Quem chegou a 0 (ou menos) de hp. Não mexe em gameOrder — quem
+    // recalcula gameOrder de verdade é girarOrdem(), chamado logo em
+    // seguida em GameController; reatribuir aqui também seria trabalho
+    // jogado fora.
     eliminarZerados() {
-        const eliminados = this.gameOrder.filter(jogador => jogador.hp <= 0);
-        this.gameOrder = this.gameOrder.filter(jogador => jogador.hp > 0);
-        return eliminados;
+        return this.gameOrder.filter(jogador => jogador.hp <= 0);
     }
 
     // Gira quem começa: sempre um a mais que o início da ordem original,

@@ -1,30 +1,43 @@
 // GameController.js
-// Orquestra uma partida inteira (Looby -> Game -> RodadaGame -> Mesa) e expõe
-// o andamento do jogo como eventos, em vez de console.log espalhado.
+// Dona da sala de espera (lista de jogadores antes da partida começar) e
+// orquestra a partida inteira (Game -> RodadaGame -> Mesa) quando ela
+// começa, expondo o andamento como eventos em vez de console.log espalhado.
 //
 // Isso serve dois consumidores ao mesmo tempo, sem duplicar a lógica de regras:
 //  - Main.js: assina os eventos e imprime no console (harness de teste local)
 //  - Server.js (futuro): assina os eventos e faz io.emit(...) para os clientes via socket.io
 import { EventEmitter } from 'node:events';
-import { Looby } from './Looby.js';
+import { Game } from './Game.js';
+import { PlayerGame } from './PlayerGame.js';
 
 export class GameController extends EventEmitter {
     constructor({ numberPlayers, roundStart, randomShuffle } = {}) {
         super();
-        this.looby = new Looby(numberPlayers, roundStart, randomShuffle);
+        this.numberPlayers = numberPlayers || 4;
+        this.roundStart = roundStart || 3;
+        this.randomShuffle = randomShuffle;
+        this.jogadores = [];
         this.game = null;
         this.rodada = null;
         this.numeroRodada = 0;
     }
 
+    // Sala de espera: transforma o Player que entrou num PlayerGame e guarda
+    // na lista até a partida começar. Ordem de chegada é a própria posição
+    // no array — nenhum campo à parte guarda isso.
     entrarNaSala(player) {
-        this.looby.addJogador(player);
+        this.jogadores.push(new PlayerGame(player));
         this.emit('jogadorEntrou', { id: player.id, nome: player.nome });
         return this;
     }
 
     iniciarPartida() {
-        this.game = this.looby.startgame();
+        this.game = new Game({
+            numberPlayers: this.numberPlayers,
+            roundStart: this.roundStart,
+            randomShuffle: this.randomShuffle,
+            jogadores: [...this.jogadores],
+        });
         this.game.setstartsequence();
 
         this.numeroRodada = 1;

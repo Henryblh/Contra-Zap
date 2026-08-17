@@ -81,7 +81,7 @@ Erros possíveis: `NAO_IDENTIFICADO`.
 ## Eventos servidor -> cliente
 
 ### `listaJogadores`
-Payload: `{ salaId: string, jogadores: [{ nome: string, gameId: number }] }`
+Payload: `{ salaId: string, jogadores: [{ nome: string }] }`
 Broadcast (`io.to(salaId)`) pra todos os sockets da sala toda vez que a lista
 muda (por enquanto só entrada — sair/desconectar durante a espera é um dos
 itens adiados abaixo).

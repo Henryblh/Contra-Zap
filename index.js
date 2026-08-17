@@ -2,7 +2,6 @@
 // Reexporta as peças do jogo para quem for consumir a lib (ex.: Server.js
 // ao ligar o GameController nos sockets).
 export { GameController } from './game/GameController.js';
-export { Looby } from './game/Looby.js';
 export { Game } from './game/Game.js';
 export { RodadaGame } from './game/Rodada.js';
 export { Mesa } from './game/Mesa.js';
