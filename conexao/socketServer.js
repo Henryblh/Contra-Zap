@@ -107,6 +107,16 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
             });
         });
 
+        socket.on(EventosCliente.RECONECTAR, ({ salaId } = {}, ack) => {
+            responder(ack, () => {
+                const player = exigirJogador();
+                const { estado } = salaManager.reconectar(salaId, player);
+                socket.join(salaId);
+                salaPorSocket.set(socket.id, salaId);
+                return { salaId, ...estado };
+            });
+        });
+
         socket.on('disconnect', () => {
             const player = jogadorPorSocket.get(socket.id);
             const salaId = salaPorSocket.get(socket.id);
@@ -168,6 +178,8 @@ function ligarControllerASala(io, sala) {
     retransmitir(EventosServidor.RODADA_FINALIZADA);
     retransmitir(EventosServidor.JOGADORES_ELIMINADOS);
     retransmitir(EventosServidor.JOGO_FINALIZADO);
+    retransmitir(EventosServidor.JOGADA_AUTOMATICA);
+    retransmitir(EventosServidor.JOGADOR_RECONECTOU);
 
     controller.on('cartasDistribuidas', (maos) => {
         for (const { id, mao } of maos) {

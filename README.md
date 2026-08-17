@@ -101,15 +101,14 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
 - ✅ Sair da sala (`sairSala`) antes da partida começar — voluntário ou por desconexão (aba
   fechada, rede caiu tratam igual). Se quem sai é o dono/adm, a posição passa pro próximo;
   sala vazia é descartada. Desconexão **depois** que a partida já começou não mexe no
-  roster do jogo, de propósito — é a base pra reconexão futura, não implementada ainda.
+  roster do jogo, de propósito.
 - ✅ Jogada real: o `GameController` pausa em cada turno e espera `jogarCarta` (índice da
   carta na mão) em vez de jogar sozinho — `Main2.js` já pede pra escolher a carta na sua
-  vez. Isso tira o principal bloqueador estrutural que faltava pra reconexão de verdade
-  (agora existe um "onde" pausar); ainda não tem timeout/bot pra quando ninguém responde.
-- 🚧 Reconexão de verdade (socket cair e voltar e continuar de onde parou) — token, sala
-  pessoal por jogador, roster intacto pós-desconexão e agora a pausa real por turno já dão
-  a base; falta só o evento/fluxo do lado do protocolo (reidentificar `socket.id` novo com
-  `player.id` já em jogo).
-- 🚧 Timeout/bot pra quando o jogador da vez não responde — hoje a partida trava esperando
-  pra sempre.
+  vez.
+- ✅ Timeout de turno + reconexão: cada turno tem um prazo (`tempoTurnoMs` no
+  `GameController`, 15s por padrão) — se estourar, o servidor joga sozinho (placeholder
+  simples: última carta da mão, trocar por bot de verdade é trabalho futuro) e liga uma
+  flag `desconectado` naquele jogador. O evento `reconectar` reencaixa quem voltou numa
+  partida já em andamento (devolve mão atual + de quem é a vez) e desliga a flag — testado
+  ponta a ponta: cair na própria vez aciona a jogada automática, reconectar limpa a flag.
 - 🚧 Interface web — em desenvolvimento.

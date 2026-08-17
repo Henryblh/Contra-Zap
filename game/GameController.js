@@ -10,17 +10,30 @@ import { EventEmitter } from 'node:events';
 import { Game } from './Game.js';
 import { PlayerGame } from './PlayerGame.js';
 
+// Placeholder de bot: joga a última carta da mão, igual ao pop() que o
+// motor usava antes de esperar jogada real. Só existe pra validar o
+// mecanismo de timeout — trocar por uma escolha de verdade é trabalho
+// futuro (ver PROTOCOLO.md).
+function escolherCartaAutomatica(jogador) {
+    return jogador.mao.length - 1;
+}
+
 export class GameController extends EventEmitter {
-    constructor({ numberPlayers, roundStart, randomShuffle } = {}) {
+    constructor({ numberPlayers, roundStart, randomShuffle, tempoTurnoMs } = {}) {
         super();
         this.numberPlayers = numberPlayers || 4;
         this.roundStart = roundStart || 3;
         this.randomShuffle = randomShuffle;
+        // Quanto tempo esperar a jogada real antes de cair pro automático
+        // (ver _aguardarJogadaOuTimeout). Campo público de propósito — dá
+        // pra ajustar por sala (ex.: testes usam um valor bem menor).
+        this.tempoTurnoMs = tempoTurnoMs ?? 15_000;
         this.jogadores = [];
         this.game = null;
         this.rodada = null;
         this.numeroRodada = 0;
         this._timerInicio = null;
+        this._jogadaEsperada = null;
     }
 
     // Sala de espera: transforma o Player que entrou num PlayerGame e guarda
@@ -131,6 +144,32 @@ export class GameController extends EventEmitter {
         });
     }
 
+    // Igual _aguardarJogada, mas com prazo: se tempoTurnoMs passar sem
+    // jogarCarta() de verdade, joga por conta própria (placeholder de bot,
+    // ver escolherCartaAutomatica) e liga jogador.desconectado — é o sinal
+    // de que essa cadeira está no automático até reconectar ou jogar de
+    // novo (ver marcarReconectado / jogarCarta). O guard dentro do timeout
+    // existe pra não resolver duas vezes se o timer disparar bem na hora
+    // que uma jogada real também chegou.
+    async _aguardarJogadaOuTimeout(jogador) {
+        const jogadaFeita = this._aguardarJogada(jogador);
+        this.emit('turnoJogador', { id: jogador.id, jogador: jogador.nome });
+
+        const timer = setTimeout(() => {
+            if (this._jogadaEsperada?.jogadorId !== jogador.id) return;
+            jogador.desconectado = true;
+            const resolver = this._jogadaEsperada.resolver;
+            this._jogadaEsperada = null;
+            this.emit('jogadaAutomatica', { id: jogador.id, jogador: jogador.nome });
+            resolver(escolherCartaAutomatica(jogador));
+        }, this.tempoTurnoMs);
+        timer.unref?.();
+
+        const indice = await jogadaFeita;
+        clearTimeout(timer);
+        return indice;
+    }
+
     // Chamado de fora (via protocolo) quando um jogador manda a carta que
     // quer jogar. `indice` é a posição na mão dele (0-based). Devolve
     // { ok: true } se aceita — e só então o índice é consumido e a espera
@@ -147,10 +186,41 @@ export class GameController extends EventEmitter {
             return { ok: false, motivo: 'CARTA_INVALIDA' };
         }
 
+        jogador.desconectado = false; // jogou de verdade — claramente está de volta
         const resolver = this._jogadaEsperada.resolver;
         this._jogadaEsperada = null;
         resolver(indice);
         return { ok: true };
+    }
+
+    // Estado mínimo pra alguém que estava fora reencaixar numa partida já
+    // em andamento: a própria mão atual e de quem é a vez agora. null se
+    // esse playerId não faz parte de uma partida em andamento aqui (sala
+    // ainda não começou, ou ele nunca esteve nela).
+    estadoDeReconexao(playerId) {
+        if (!this.game) return null;
+        const jogador = this.jogadores.find(j => j.id === playerId);
+        if (!jogador) return null;
+
+        const idDaVez = this._jogadaEsperada?.jogadorId ?? null;
+        return {
+            mao: jogador.mao.map(c => c.toString()),
+            suaVez: idDaVez === playerId,
+            jogadorDaVez: idDaVez ? this.jogadores.find(j => j.id === idDaVez)?.nome ?? null : null,
+        };
+    }
+
+    // Chamado quando o jogador reconecta de verdade (ver conexao/SalaManager.js)
+    // — só desliga a flag de "jogando no automático". O resto do estado
+    // (mão, hp, vez) já sobrevive à desconexão por natureza, não precisa
+    // reconstruir nada.
+    marcarReconectado(playerId) {
+        const jogador = this.jogadores.find(j => j.id === playerId);
+        if (!jogador) return false;
+
+        jogador.desconectado = false;
+        this.emit('jogadorReconectou', { id: jogador.id, nome: jogador.nome });
+        return true;
     }
 
     async _jogarRodadaAtual() {
@@ -176,9 +246,7 @@ export class GameController extends EventEmitter {
 
             const ordem = rodada.ordemDaVaza();
             for (const jogador of ordem) {
-                const jogadaFeita = this._aguardarJogada(jogador);
-                this.emit('turnoJogador', { id: jogador.id, jogador: jogador.nome });
-                const indice = await jogadaFeita;
+                const indice = await this._aguardarJogadaOuTimeout(jogador);
 
                 const carta = jogador.mao.splice(indice, 1)[0];
                 const status = rodada.registrarJogada(jogador, carta);

@@ -125,18 +125,40 @@ e o jogo segue pro próximo evento (`cartaJogada` público, depois o próximo
 Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`, `SALA_NAO_INICIADA`,
 `NAO_E_SUA_VEZ`, `CARTA_INVALIDA` (índice fora da mão).
 
-**Sem timeout ainda**: se ninguém mandar `jogarCarta` pra vez que está
-esperando, a partida fica parada ali pra sempre — não existe bot nem prazo.
-Decisão consciente pra esse marco (ver pendências).
+**Timeout do turno**: cada `turnoJogador` tem um prazo (`tempoTurnoMs` no
+`GameController`, 15s por padrão) pra `jogarCarta` chegar. Se estourar, o
+servidor joga sozinho por aquele jogador — hoje um placeholder bem simples
+(sempre a última carta da mão, o mesmo `pop()` de antes de existir jogada
+real; ver `escolherCartaAutomatica` em `game/GameController.js` — trocar
+isso por uma escolha de verdade é trabalho futuro) — liga a flag
+`desconectado` nele e emite `jogadaAutomatica` pra sala. A flag só desliga
+quando ele manda `jogarCarta` de novo com sucesso, ou reconecta (ver
+`reconectar` abaixo).
 
-Uma desconexão "do nada" (aba fechada, rede caiu) durante a espera tem
-**exatamente o mesmo efeito** de mandar `sairSala` — o servidor chama a
-mesma função internamente ao detectar o `disconnect`, sem esperar o cliente
-pedir nada. A diferença é só quem está mandando: aqui o `socketServer.js`
-mesmo, silenciosamente (não tem ack pra responder, e um erro esperado — tipo
-a sala já ter começado — não é logado, só ignorado). Já uma desconexão
-**depois** que a partida começou não faz nada: o jogador continua no roster
-do jogo (é isso que deixa reconexão futura viável — ver seção de pendências).
+Uma desconexão "do nada" (aba fechada, rede caiu) **antes** da partida
+começar tem exatamente o mesmo efeito de mandar `sairSala` — o servidor
+chama a mesma função internamente ao detectar o `disconnect`, sem esperar o
+cliente pedir nada (silenciosamente: não tem ack pra responder, e um erro
+esperado não é logado). Já uma desconexão **depois** que a partida começou
+não mexe no roster do jogo — o assento continua lá. Se a desconexão
+acontecer bem na vez dele, o timeout acima cuida disso normalmente (jogada
+automática); se não for a vez dele, simplesmente não acontece nada até a
+vez chegar.
+
+### `reconectar`
+Payload: `{ salaId: string }`
+Pré-condição: socket já mandou `entrar` (de novo — reconectar não dispensa
+logar de novo, o `socket.id` é outro); a sala precisa **já ter começado**
+(pra sala em espera, é só `entrarSala` mesmo) e quem manda precisa já fazer
+parte daquela partida (ter entrado na sala antes dela começar).
+Ack sucesso: `{ ok: true, salaId, mao: string[], suaVez: boolean,
+jogadorDaVez: string | null }` — a mão atual de quem reconectou e de quem é
+a vez agora, pra o cliente saber se já deve pedir a escolha de carta na
+hora. O socket dá `join` na sala de novo (broadcasts futuros voltam a
+chegar) e a flag `desconectado` desse jogador é desligada.
+Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`,
+`SALA_NAO_INICIADA` (sala existe mas a partida não começou — use
+`entrarSala`), `NAO_ESTA_NA_SALA` (não faz parte dessa partida).
 
 ## Eventos servidor -> cliente
 
@@ -169,23 +191,25 @@ adicionado:
 | `rodadaFinalizada` | `{ numero, resultado }` |
 | `jogadoresEliminados` | `{ eliminados: [{ nome, hp }] }` |
 | `jogoFinalizado` | `{ vencedor }` |
+| `jogadaAutomatica` | `{ id, jogador }` — `tempoTurnoMs` estourou, o servidor jogou sozinho por ele |
+| `jogadorReconectou` | `{ id, jogador }` — voltou via `reconectar`, flag `desconectado` desligada |
 
 ## Códigos de erro (`CodigosErro`)
 
 | Código | Quando |
 |---|---|
-| `NAO_IDENTIFICADO` | Mandou `criarSala`/`entrarSala`/`listarSalas`/`forcarInicio`/`sairSala`/`jogarCarta` sem ter mandado `entrar` antes |
+| `NAO_IDENTIFICADO` | Mandou `criarSala`/`entrarSala`/`listarSalas`/`forcarInicio`/`sairSala`/`jogarCarta`/`reconectar` sem ter mandado `entrar` antes |
 | `USUARIO_NAO_ENCONTRADO` | `entrar` com nome que não existe no banco |
 | `SENHA_INCORRETA` | `entrar` com nome existente, senha errada |
 | `NOME_INVALIDO` | `entrarSala` com nome já em uso *nessa sala* |
 | `CONFIGURACAO_INVALIDA` | `criarSala` com `numberPlayers`/`roundStart` fora do intervalo aceito |
-| `SALA_NAO_ENCONTRADA` | `entrarSala`/`forcarInicio`/`sairSala`/`jogarCarta` com `salaId` que não existe |
+| `SALA_NAO_ENCONTRADA` | `entrarSala`/`forcarInicio`/`sairSala`/`jogarCarta`/`reconectar` com `salaId` que não existe |
 | `SALA_CHEIA` | `entrarSala` numa sala que já tem `numberPlayers` jogadores |
 | `SALA_NAO_CHEIA` | `forcarInicio` antes da sala lotar |
 | `SALA_JA_INICIADA` | `entrarSala`/`forcarInicio`/`sairSala` numa sala cuja partida já começou |
-| `SALA_NAO_INICIADA` | `jogarCarta` numa sala cuja partida ainda não começou |
+| `SALA_NAO_INICIADA` | `jogarCarta`/`reconectar` numa sala cuja partida ainda não começou |
 | `JA_ESTA_NA_SALA` | `entrarSala` com o mesmo jogador (mesmo id de sessão) já presente |
-| `NAO_ESTA_NA_SALA` | `sairSala` por quem não está (mais) naquela sala |
+| `NAO_ESTA_NA_SALA` | `sairSala` por quem não está (mais) naquela sala; `reconectar` por quem não faz parte da partida |
 | `NAO_AUTORIZADO` | `forcarInicio` por quem não é o adm da sala |
 | `NAO_E_SUA_VEZ` | `jogarCarta` fora da sua vez |
 | `CARTA_INVALIDA` | `jogarCarta` com `indice` que não existe na mão de quem mandou |
@@ -193,28 +217,21 @@ adicionado:
 
 ## O que fica fora deste marco (decisão adiada, não esquecida)
 
-- Reconexão de verdade (o socket cair e voltar, e o cliente continuar
-  recebendo a partida de onde parou). O bloqueador estrutural que existia
-  antes — o `GameController` rodar a partida inteira num loop síncrono, sem
-  nenhum "onde" pra pausar — **não existe mais**: `jogarCarta` já faz o
-  motor esperar de verdade a vez de cada jogador (ver `_aguardarJogada` em
-  `game/GameController.js`), e o resto do que reconexão vai precisar também
-  já está pronto — token JWT sem estado, sala pessoal `jogador:<id>`, e
-  desconexão em partida já iniciada não mexe no roster (ver `sairSala`
-  acima). O que falta é só o fluxo do lado do protocolo: um evento
-  `reconectar` e um jeito de reidentificar qual `socket.id` novo corresponde
-  a qual `player.id` já em jogo (hoje `jogadorPorSocket`/`salaPorSocket` só
-  conhecem o `socket.id` atual, que morre no disconnect) — e, ligado a isso,
-  o que fazer se ninguém responder `turnoJogador` a tempo (ver timeout
-  abaixo).
-- Timeout/bot pra quando o jogador da vez não responde. Hoje `jogarCarta`
-  não tem prazo — se a pessoa cair ou sumir bem na hora da vez dela, a
-  partida trava ali pra sempre, esperando pra sempre por uma jogada que
-  pode nunca vir. Decisão consciente pra chegar rápido numa versão
-  jogável; timer dedicado + jogada automática de fallback + flag marcando
-  "essa cadeira está sendo jogada no automático" é o desenho já discutido,
-  só não implementado ainda.
+- Bot de verdade. `escolherCartaAutomatica` (`game/GameController.js`) hoje
+  só devolve a última carta da mão — dá pra validar o mecanismo de
+  timeout/flag ponta a ponta, mas não é uma escolha estratégica nenhuma.
+  Trocar por algo que jogue com alguma lógica é trabalho futuro.
+- Reconectar durante a **sala de espera** (antes da partida começar) não
+  existe como conceito separado — hoje uma desconexão nessa fase tira o
+  jogador da sala (`sairSala`), então "reconectar" ali é só logar de novo e
+  mandar `entrarSala` como se fosse a primeira vez. `reconectar` (evento
+  novo) só serve pra partida já em andamento.
 - Abandono/forfeit de partida em andamento (hoje só dá pra sair antes de
-  começar, via `sairSala`).
+  começar, via `sairSala` — uma vez que a partida começa, o único jeito de
+  "sair" é deixar o timeout jogar automático por você indefinidamente).
 - Apostas reais (hoje toda aposta é fixa em 1 — `jogador.aposta = 1` sem
   perguntar nada; só a escolha da carta virou interativa nesse marco).
+- Reconexão via `Main2.js`: o harness de CLI não guarda o token entre
+  execuções nem oferece a opção "reconectar" no menu — pra testar o fluxo
+  de reconexão hoje é preciso emitir o evento manualmente (ou usar os
+  testes automatizados, que já cobrem o caminho ponta a ponta).
