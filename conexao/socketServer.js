@@ -18,8 +18,12 @@ class ErroProtocolo extends Error {
 // ser injetado (testes) — por padrão cada chamada ganha o seu, isolado.
 export function registrarSocketServer(io, salaManager = new SalaManager()) {
     // socket.id -> Player, só existe depois de um `entrar` bem-sucedido.
-    // Vive só em memória, por conexão: some no disconnect (ver TODO(JWT) em login.js).
+    // Vive só em memória, por conexão: some no disconnect.
     const jogadorPorSocket = new Map();
+    // socket.id -> salaId, só existe enquanto o socket está numa sala de
+    // espera. É o que permite o disconnect saber de qual sala tirar o
+    // jogador, sem precisar varrer todas as salas procurando por ele.
+    const salaPorSocket = new Map();
 
     io.on('connection', (socket) => {
         const exigirJogador = () => {
@@ -47,6 +51,7 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
                 const player = exigirJogador();
                 const sala = salaManager.criarSala(player, config);
                 socket.join(sala.salaId);
+                salaPorSocket.set(socket.id, sala.salaId);
                 ligarControllerASala(io, sala);
                 notificarSala(io, sala);
                 return { salaId: sala.salaId, numberPlayers: sala.numberPlayers };
@@ -58,6 +63,7 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
                 const player = exigirJogador();
                 const sala = salaManager.entrarSala(salaId, player);
                 socket.join(sala.salaId);
+                salaPorSocket.set(socket.id, sala.salaId);
                 notificarSala(io, sala);
                 return {
                     salaId: sala.salaId,
@@ -82,8 +88,47 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
             });
         });
 
+        socket.on(EventosCliente.SAIR_SALA, ({ salaId } = {}, ack) => {
+            responder(ack, () => {
+                const player = exigirJogador();
+                const sala = salaManager.sairSala(salaId, player);
+                socket.leave(salaId);
+                salaPorSocket.delete(socket.id);
+                notificarSala(io, sala);
+                return {};
+            });
+        });
+
+        socket.on(EventosCliente.JOGAR_CARTA, ({ salaId, indice } = {}, ack) => {
+            responder(ack, () => {
+                const player = exigirJogador();
+                salaManager.jogarCarta(salaId, player, indice);
+                return {};
+            });
+        });
+
         socket.on('disconnect', () => {
+            const player = jogadorPorSocket.get(socket.id);
+            const salaId = salaPorSocket.get(socket.id);
             jogadorPorSocket.delete(socket.id);
+            salaPorSocket.delete(socket.id);
+
+            // Best-effort: sem cliente do outro lado pra responder erro
+            // nenhum. Se a sala já começou, se o jogador já tinha saído, ou
+            // se a sala nem existe mais, não há nada a fazer — e é
+            // exatamente por isso que não tocamos no estado de uma partida
+            // em andamento aqui: só sairSala numa sala ainda em espera tem
+            // efeito, então cair no meio do jogo não perde o assento
+            // (pré-condição pra reconexão futura).
+            if (player && salaId) {
+                try {
+                    notificarSala(io, salaManager.sairSala(salaId, player));
+                } catch (erro) {
+                    if (!(erro instanceof ErroSala)) {
+                        console.error('Erro inesperado ao limpar sala no disconnect:', erro);
+                    }
+                }
+            }
         });
     });
 

@@ -50,6 +50,31 @@ export class GameController extends EventEmitter {
         return this.jogadores.some(jogador => jogador.id === playerId && jogador.adm);
     }
 
+    // Sala de espera, ao contrário: tira o jogador da lista. Só faz sentido
+    // antes da partida começar (quem chama garante isso, olhando `game`).
+    // Se quem saiu era o adm e sobrou gente, o próximo da lista assume — a
+    // sala nunca fica sem ninguém que possa forçar início. Cancela um
+    // início agendado, já que a sala deixou de estar cheia. Devolve false
+    // se o jogador nem estava na lista (chamador decide se isso é erro).
+    removerJogador(playerId) {
+        const indice = this.jogadores.findIndex(jogador => jogador.id === playerId);
+        if (indice === -1) return false;
+
+        const eraAdm = this.jogadores[indice].adm;
+        this.jogadores.splice(indice, 1);
+        if (eraAdm && this.jogadores.length > 0) {
+            this.jogadores[0].adm = true;
+        }
+
+        if (this._timerInicio) {
+            clearTimeout(this._timerInicio);
+            this._timerInicio = null;
+        }
+
+        this.emit('jogadorSaiu', { id: playerId });
+        return true;
+    }
+
     // Pula a espera de agendarInicio e começa na hora. Quem valida se quem
     // pediu tem permissão é a camada de sala (via jogadorEhAdm), antes de
     // chamar isto.
@@ -62,7 +87,7 @@ export class GameController extends EventEmitter {
     }
 
     iniciarPartida() {
-        if (this.game) return; // idempotente — evita reiniciar se o timer e um forcarInicio colidirem
+        if (this.game) return this; // idempotente — evita reiniciar se o timer e um forcarInicio colidirem
 
         if (this._timerInicio) {
             clearTimeout(this._timerInicio);
@@ -81,11 +106,54 @@ export class GameController extends EventEmitter {
         this.rodada = this.game.newRodada();
         this.emit('novaRodadaIniciada', { numero: this.numeroRodada, cartas: this.rodada.round });
 
-        this._jogarRodadaAtual();
+        // A partir daqui a partida roda em segundo plano, pausando pra
+        // esperar cada jogada real (ver _aguardarJogada/jogarCarta) — pode
+        // levar segundos, minutos, o tempo que for. iniciarPartida() não
+        // espera nada disso, só dispara e devolve na hora. O .catch aqui é
+        // a mesma filosofia do responder() em socketServer.js: um erro
+        // inesperado no meio da partida não pode virar um unhandled
+        // rejection e derrubar o processo.
+        this._jogarRodadaAtual().catch(erro => {
+            console.error('Erro inesperado durante a partida:', erro);
+        });
         return this;
     }
 
-    _jogarRodadaAtual() {
+    // Devolve uma Promise que só resolve quando jogarCarta(jogador.id, ...)
+    // for chamado com sucesso pra esse jogador específico — é a pausa real
+    // que faltava. Guardar { jogadorId, resolver } ANTES de emitir
+    // turnoJogador (chamado por quem usa isto) é o que permite um listener
+    // síncrono (ex.: o auto-play do Main.js) responder na hora, dentro do
+    // próprio emit, sem cair numa corrida onde a espera ainda nem existe.
+    _aguardarJogada(jogador) {
+        return new Promise((resolve) => {
+            this._jogadaEsperada = { jogadorId: jogador.id, resolver: resolve };
+        });
+    }
+
+    // Chamado de fora (via protocolo) quando um jogador manda a carta que
+    // quer jogar. `indice` é a posição na mão dele (0-based). Devolve
+    // { ok: true } se aceita — e só então o índice é consumido e a espera
+    // em _jogarRodadaAtual é liberada — ou { ok: false, motivo } se não for
+    // a vez desse jogador ou o índice não existir na mão dele; nesses casos
+    // nada muda e a espera continua de pé.
+    jogarCarta(playerId, indice) {
+        if (!this._jogadaEsperada || this._jogadaEsperada.jogadorId !== playerId) {
+            return { ok: false, motivo: 'NAO_E_SUA_VEZ' };
+        }
+
+        const jogador = this.jogadores.find(j => j.id === playerId);
+        if (!Number.isInteger(indice) || indice < 0 || indice >= jogador.mao.length) {
+            return { ok: false, motivo: 'CARTA_INVALIDA' };
+        }
+
+        const resolver = this._jogadaEsperada.resolver;
+        this._jogadaEsperada = null;
+        resolver(indice);
+        return { ok: true };
+    }
+
+    async _jogarRodadaAtual() {
         const rodada = this.rodada;
 
         rodada.darCartas();
@@ -108,9 +176,11 @@ export class GameController extends EventEmitter {
 
             const ordem = rodada.ordemDaVaza();
             for (const jogador of ordem) {
-                this.emit('turnoJogador', { jogador: jogador.nome });
+                const jogadaFeita = this._aguardarJogada(jogador);
+                this.emit('turnoJogador', { id: jogador.id, jogador: jogador.nome });
+                const indice = await jogadaFeita;
 
-                const carta = jogador.mao.pop();
+                const carta = jogador.mao.splice(indice, 1)[0];
                 const status = rodada.registrarJogada(jogador, carta);
                 this.emit('cartaJogada', { jogador: jogador.nome, carta: carta.toString(), status });
             }
@@ -136,10 +206,10 @@ export class GameController extends EventEmitter {
             }))
         });
 
-        this._avancarOuFinalizar();
+        await this._avancarOuFinalizar();
     }
 
-    _avancarOuFinalizar() {
+    async _avancarOuFinalizar() {
         const vivos = this.game.gameOrder.filter(j => j.hp > 0);
         if (vivos.length === 1) {
             this.emit('jogoFinalizado', { vencedor: vivos[0].nome });
@@ -167,6 +237,6 @@ export class GameController extends EventEmitter {
         this.rodada = this.game.proximaRodada();
         this.emit('novaRodadaIniciada', { numero: this.numeroRodada, cartas: this.rodada.round });
 
-        this._jogarRodadaAtual();
+        await this._jogarRodadaAtual();
     }
 }

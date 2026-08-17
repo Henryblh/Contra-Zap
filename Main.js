@@ -33,8 +33,14 @@ controller.on('apostaFeita', ({ jogador, aposta }) => {
     console.log(`jogador ${jogador}: Apostou ${aposta} rodada`);
 });
 
-controller.on('turnoJogador', ({ jogador }) => {
+controller.on('turnoJogador', ({ id, jogador }) => {
     console.log(`jogador ${jogador}: Selecione uma carta`);
+
+    // Harness de console: ninguém está do outro lado escolhendo, então joga
+    // sempre a última carta da mão — mesmo comportamento de antes de o
+    // GameController esperar jogada real.
+    const playerGame = controller.jogadores.find(j => j.id === id);
+    controller.jogarCarta(id, playerGame.mao.length - 1);
 });
 
 controller.on('cartaJogada', ({ jogador, carta, status }) => {
