@@ -97,9 +97,23 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
             },
         };
 
-        for (const [evento, handler] of Object.entries(handlers)) socket.on(evento, handler);
+        // Loga todo evento recebido, com nome e payload — cobre qualquer
+        // handler acima sem precisar espalhar console.log manual por dentro
+        // de cada um. Confira o console do navegador (F12) pra debugar o
+        // que chega ao abrir/jogar numa sala.
+        const comLog = Object.fromEntries(
+            Object.entries(handlers).map(([evento, handler]) => [
+                evento,
+                (payload) => {
+                    console.log(`[socket] ${evento}`, payload);
+                    handler(payload);
+                },
+            ])
+        );
+
+        for (const [evento, handler] of Object.entries(comLog)) socket.on(evento, handler);
         return () => {
-            for (const [evento, handler] of Object.entries(handlers)) socket.off(evento, handler);
+            for (const [evento, handler] of Object.entries(comLog)) socket.off(evento, handler);
         };
     }, [salaId]);
 
@@ -133,7 +147,7 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
 
     const souEuNaVez = iniciada && jogadorDaVez === meuNome && !vencedor;
 
-    console.log('vira:', vira)
+    console.log('vira:', vira);
 
     return (
         <div className="cartao cartao-larga">
@@ -151,7 +165,7 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
                     {segundosParaIniciar != null && (
                         <>
                             <p>Sala cheia — começa sozinha em {segundosParaIniciar}s.</p>
-                            <button onClick={forcarInicio} type="button">Forçar início agora</button>
+                            <button onClick={forcarInicio} type="button">Forçar início agora porra</button>
                         </>
                     )}
                 </section>

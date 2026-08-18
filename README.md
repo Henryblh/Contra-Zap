@@ -44,6 +44,33 @@ Isso simula uma partida inteira com 4 jogadores fixos (jogadas automáticas — 
    partida só segue depois que você escolhe (sem timeout ainda: se ninguém
    responder, ela fica esperando).
 
+## Como rodar a interface web (front-end React)
+
+O `Server.js` (porta 3000) serve arquivos estáticos de `public/dist` — **não**
+tem hot-reload embutido nesse fluxo. `public/dist` só é gerado/atualizado por
+um build explícito (`npm run build` dentro de `public/app`); reiniciar o
+`Server.js` sozinho não reflete nenhuma mudança no `public/app/src`, porque
+ele não sabe nada sobre o código-fonte, só serve o que já está buildado.
+
+Duas formas de rodar, dependendo do que você quer:
+
+- **Testar como em produção** (build único, sem hot-reload):
+  ```
+  cd public/app
+  npm run build
+  ```
+  Depois suba/mantenha `npm start` na raiz e abra `localhost:3000`. Repita o
+  `npm run build` a cada mudança no front — e dê um hard refresh
+  (`Ctrl+Shift+R`) no navegador pra não pegar cache antigo.
+
+- **Desenvolvendo o front** (hot-reload automático, recomendado no dia a dia):
+  1. Num terminal, na raiz: `npm start` (sobe só o backend, porta 3000).
+  2. Em outro terminal, dentro de `public/app`: `npm run dev` (sobe o Vite,
+     porta 5173, já configurado em `vite.config.js` pra proxiar `/socket.io`
+     pro backend em `:3000`).
+  3. Abra `localhost:5173` — qualquer edição em `public/app/src` aparece na
+     hora, sem precisar buildar nem reiniciar nada.
+
 ## Estrutura do projeto
 
 ```
