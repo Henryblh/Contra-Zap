@@ -2,8 +2,7 @@
 /node_modules/
 /public/app/node_modules/
 
-# Build da interface React (gerado por `npm run build` dentro de public/app)
-/public/dist/
+# Build da interface React (gerado por `npm run build` dentro de public/ap
 
 # Logs e variáveis de ambiente
 npm-debug.log*
