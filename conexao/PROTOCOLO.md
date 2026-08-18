@@ -61,6 +61,16 @@ Pré-condição: nenhuma (primeiro evento da conexão).
 Ack sucesso: `{ ok: true, nome, token }`.
 Erros possíveis: `USUARIO_NAO_ENCONTRADO`, `SENHA_INCORRETA`.
 
+### `cadastrar`
+Payload: `{ nome: string, senha: string }` — `nome` e `senha` precisam ter
+pelo menos 3 caracteres (espaços nas pontas do nome são descartados antes
+de checar).
+Pré-condição: nenhuma (alternativa a `entrar` pra quem ainda não tem conta).
+Ack sucesso: `{ ok: true, nome, token }` — mesmo formato de `entrar`; a
+conta já nasce autenticada, não precisa de um `entrar` separado depois.
+Erros possíveis: `CADASTRO_INVALIDO` (nome/senha curtos demais),
+`NOME_JA_CADASTRADO`.
+
 ### `criarSala`
 Payload: `{ numberPlayers?: number, roundStart?: number, randomShuffle?: boolean }`
 (todos opcionais — default vem do `SalaManager`: 4 / 3 / true)
@@ -201,6 +211,8 @@ adicionado:
 | `NAO_IDENTIFICADO` | Mandou `criarSala`/`entrarSala`/`listarSalas`/`forcarInicio`/`sairSala`/`jogarCarta`/`reconectar` sem ter mandado `entrar` antes |
 | `USUARIO_NAO_ENCONTRADO` | `entrar` com nome que não existe no banco |
 | `SENHA_INCORRETA` | `entrar` com nome existente, senha errada |
+| `CADASTRO_INVALIDO` | `cadastrar` com nome ou senha menor que 3 caracteres |
+| `NOME_JA_CADASTRADO` | `cadastrar` com nome que já existe no banco |
 | `NOME_INVALIDO` | `entrarSala` com nome já em uso *nessa sala* |
 | `CONFIGURACAO_INVALIDA` | `criarSala` com `numberPlayers`/`roundStart` fora do intervalo aceito |
 | `SALA_NAO_ENCONTRADA` | `entrarSala`/`forcarInicio`/`sairSala`/`jogarCarta`/`reconectar` com `salaId` que não existe |

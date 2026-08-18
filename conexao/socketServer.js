@@ -3,6 +3,7 @@
 // É a única peça de conexao/ que sabe o que é um socket.io — SalaManager e
 // login não sabem nada sobre isso, o que é o que permite testá-los sozinhos.
 import { login, ErroLogin } from './login.js';
+import { cadastrar, ErroCadastro } from './cadastro.js';
 import { SalaManager, ErroSala } from './SalaManager.js';
 import { EventosCliente, EventosServidor, CodigosErro } from './eventos.js';
 
@@ -34,14 +35,29 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
             return player;
         };
 
+        // Autentica o socket depois de login()/cadastrar() terem devolvido
+        // { token, player } — os dois deixam a conexão pronta do mesmo
+        // jeito, é só quem valida os dados que muda.
+        const autenticarSocket = (player) => {
+            jogadorPorSocket.set(socket.id, player);
+            // Sala pessoal do jogador — endereçável por id de conta (estável),
+            // não por socket.id (muda a cada reconexão). É pra cá que vai
+            // qualquer informação privada (ex.: SUA_MAO).
+            socket.join(`jogador:${player.id}`);
+        };
+
         socket.on(EventosCliente.ENTRAR, ({ nome, senha } = {}, ack) => {
             responder(ack, () => {
                 const { token, player } = login(nome, senha);
-                jogadorPorSocket.set(socket.id, player);
-                // Sala pessoal do jogador — endereçável por id de conta (estável),
-                // não por socket.id (muda a cada reconexão). É pra cá que vai
-                // qualquer informação privada (ex.: SUA_MAO).
-                socket.join(`jogador:${player.id}`);
+                autenticarSocket(player);
+                return { nome: player.nome, token };
+            });
+        });
+
+        socket.on(EventosCliente.CADASTRAR, ({ nome, senha } = {}, ack) => {
+            responder(ack, () => {
+                const { token, player } = cadastrar(nome, senha);
+                autenticarSocket(player);
                 return { nome: player.nome, token };
             });
         });
@@ -199,7 +215,7 @@ function responder(ack, acao) {
         const resultado = acao();
         ack({ ok: true, ...resultado });
     } catch (erro) {
-        if (erro instanceof ErroLogin || erro instanceof ErroSala || erro instanceof ErroProtocolo) {
+        if (erro instanceof ErroLogin || erro instanceof ErroCadastro || erro instanceof ErroSala || erro instanceof ErroProtocolo) {
             ack({ ok: false, codigo: erro.codigo, mensagem: erro.message });
         } else {
             console.error('Erro inesperado num handler de socket:', erro);

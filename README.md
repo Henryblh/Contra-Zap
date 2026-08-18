@@ -31,7 +31,8 @@ Isso simula uma partida inteira com 4 jogadores fixos (jogadas automáticas — 
    node Main2.js
    ```
    Cada um pede nome/senha (use qualquer um de `banco.json`, ex.: `henrique`/`123`,
-   `piconi`/`123`, `moras`/`123`, `guilherme`/`123`), depois pergunta se você
+   `piconi`/`123`, `moras`/`123`, `guilherme`/`123` — ou cadastre uma conta nova via
+   evento `cadastrar`, `Main2.js` não tem prompt pra isso ainda), depois pergunta se você
    quer criar uma sala nova ou entrar numa já aberta. O primeiro cria (e recebe
    um `salaId` pra passar pros outros); os demais escolhem "entrar" e veem a
    sala na lista. Todo mundo na sala vê a lista de jogadores atualizar em
@@ -57,6 +58,8 @@ conexao/           -> camada de sala/rede, separada das regras do jogo
   jwt.test.js          -> testes do token
   login.js            -> autentica nome/senha contra o banco e emite token de sessão
   login.test.js        -> testes do login
+  cadastro.js         -> cria conta nova (nome/senha) e já autentica, mesmo formato do login
+  cadastro.test.js     -> testes do cadastro
   SalaManager.js      -> cria salas e valida entrada de jogadores (sem saber de socket.io)
   SalaManager.test.js -> testes da camada de sala
   socketServer.js     -> liga o protocolo a sockets de verdade (única peça que conhece socket.io)
@@ -111,4 +114,7 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
   flag `desconectado` naquele jogador. O evento `reconectar` reencaixa quem voltou numa
   partida já em andamento (devolve mão atual + de quem é a vez) e desliga a flag — testado
   ponta a ponta: cair na própria vez aciona a jogada automática, reconectar limpa a flag.
+- ✅ Cadastro de conta nova (`cadastrar`) — nome/senha com pelo menos 3 caracteres, nome
+  único (a constraint do banco é a única fonte de verdade pra isso, não um SELECT antes),
+  senha sempre em hash. Já devolve token autenticado, sem precisar de `entrar` depois.
 - 🚧 Interface web — em desenvolvimento.

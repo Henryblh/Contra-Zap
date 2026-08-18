@@ -36,3 +36,4 @@ Thumbs.db
 /conexao/SalaManager.test.js
 /conexao/socketServer.test.js
 /conexao/jwt.test.js
+/conexao/cadastro.test.js
