@@ -70,7 +70,12 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
                 salaPorSocket.set(socket.id, sala.salaId);
                 ligarControllerASala(io, sala);
                 notificarSala(io, sala);
-                return { salaId: sala.salaId, numberPlayers: sala.numberPlayers };
+                // jogadores vai no próprio ack (não só no broadcast de
+                // listaJogadores): o broadcast sai daqui dentro do handler,
+                // antes do ack — um cliente que só registra o listener
+                // depois de processar o ack (ex.: monta a tela da sala só
+                // então) perde esse primeiro broadcast pra sempre.
+                return { salaId: sala.salaId, numberPlayers: sala.numberPlayers, jogadores: resumoJogadores(sala) };
             });
         });
 
