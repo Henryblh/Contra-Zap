@@ -16,6 +16,7 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
     const [mao, setMao] = useState([]);
     const [jogadorDaVez, setJogadorDaVez] = useState(null);
     const [mesa, setMesa] = useState([]);
+    const [vira, setVira] = useState(null);
     const [ultimoPlacar, setUltimoPlacar] = useState([]);
     const [vencedor, setVencedor] = useState(null);
     const [log, setLog] = useState([]);
@@ -40,6 +41,7 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
                 if (!daSala(p)) return;
                 setIniciada(true);
                 setMesa([]);
+                setVira(null);
                 registrar(`Rodada ${p.numero} (${p.cartas} carta(s))`);
             },
             suaMao(p) {
@@ -49,6 +51,7 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
             },
             manilhaVirada(p) {
                 if (!daSala(p)) return;
+                setVira({ carta: p.vira, valor: p.viraValor });
                 registrar(`Vira: ${p.vira} — manilha valor ${p.viraValor}`);
             },
             apostaFeita(p) {
@@ -104,6 +107,7 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
         setErro(null);
         try {
             await chamar('jogarCarta', { salaId, indice });
+            setMao((anterior) => anterior.filter((_, i) => i !== indice));
         } catch (erroDaChamada) {
             setErro(erroDaChamada.message);
         }
@@ -128,6 +132,8 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
     }
 
     const souEuNaVez = iniciada && jogadorDaVez === meuNome && !vencedor;
+
+    console.log('vira:', vira)
 
     return (
         <div className="cartao cartao-larga">
@@ -162,6 +168,15 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
                         ))}
                         {mesa.length === 0 && <span className="vazio">(vazia)</span>}
                     </div>
+
+                    {vira && (
+                        <>
+                            <h3>Vira</h3>
+                            <div className="mao">
+                                <span className="carta">{vira.carta}<br /><small>manilha: {vira.valor}</small></span>
+                            </div>
+                        </>
+                    )}
 
                     <h3>Sua mão{souEuNaVez ? ' — sua vez, clique numa carta' : ''}</h3>
                     <div className="mao">
