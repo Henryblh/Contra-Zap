@@ -12,12 +12,14 @@
 
 export const EventosCliente = {
     ENTRAR: 'entrar',           // { nome, senha } -> ack: { ok, nome, token }
+    CADASTRAR: 'cadastrar',     // { nome, senha } -> ack: { ok, nome, token } — já autentica, sem precisar de "entrar" depois
     CRIAR_SALA: 'criarSala',    // { numberPlayers, roundStart, randomShuffle } -> ack: { ok, salaId, numberPlayers }
     ENTRAR_SALA: 'entrarSala',  // { salaId } -> ack: { ok, salaId, numberPlayers, jogadores }
     LISTAR_SALAS: 'listarSalas', // {} -> ack: { ok, salas: [{ salaId, numberPlayers, jogadoresAtual }] }
     FORCAR_INICIO: 'forcarInicio', // { salaId } -> ack: { ok } — só o adm da sala, só com a sala cheia
     SAIR_SALA: 'sairSala',       // { salaId } -> ack: { ok } — só antes da partida começar
     JOGAR_CARTA: 'jogarCarta',   // { salaId, indice } -> ack: { ok } — indice é 0-based, posição na mão
+    RECONECTAR: 'reconectar',    // { salaId } -> ack: { ok, mao, suaVez, jogadorDaVez } — sala com partida já em andamento
 };
 
 // Eventos empurrados pelo servidor sem ter sido pedidos por um ack.
@@ -38,6 +40,8 @@ export const EventosServidor = {
     RODADA_FINALIZADA: 'rodadaFinalizada',      // { salaId, numero, resultado }
     JOGADORES_ELIMINADOS: 'jogadoresEliminados', // { salaId, eliminados: [{ nome, hp }] }
     JOGO_FINALIZADO: 'jogoFinalizado',          // { salaId, vencedor }
+    JOGADA_AUTOMATICA: 'jogadaAutomatica',      // { salaId, id, jogador } — tempoTurnoMs estourou, jogou sozinho
+    JOGADOR_RECONECTOU: 'jogadorReconectou',    // { salaId, id, jogador }
 };
 
 export const CodigosErro = {
@@ -56,5 +60,7 @@ export const CodigosErro = {
     CARTA_INVALIDA: 'CARTA_INVALIDA',       // jogarCarta com índice fora da mão
     USUARIO_NAO_ENCONTRADO: 'USUARIO_NAO_ENCONTRADO', // login: nome não existe no banco
     SENHA_INCORRETA: 'SENHA_INCORRETA',               // login: nome existe, senha não bate
+    CADASTRO_INVALIDO: 'CADASTRO_INVALIDO',           // cadastrar: nome/senha fora do tamanho mínimo aceito
+    NOME_JA_CADASTRADO: 'NOME_JA_CADASTRADO',         // cadastrar: nome já existe no banco
     ERRO_INTERNO: 'ERRO_INTERNO',                     // exceção inesperada no servidor (não deveria acontecer)
 };

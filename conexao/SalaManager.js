@@ -48,9 +48,13 @@ class Sala {
 }
 
 export class SalaManager {
-    constructor({ tempoEsperaInicioMs = TEMPO_ESPERA_INICIO_MS_PADRAO } = {}) {
+    constructor({ tempoEsperaInicioMs = TEMPO_ESPERA_INICIO_MS_PADRAO, tempoTurnoMs } = {}) {
         this.salas = new Map();
         this.tempoEsperaInicioMs = tempoEsperaInicioMs;
+        // undefined = deixa o GameController usar o próprio default (15s).
+        // Só existe como opção aqui pra testes conseguirem injetar um valor
+        // bem menor sem precisar mexer em GameController diretamente.
+        this.tempoTurnoMs = tempoTurnoMs;
     }
 
     // Cria uma sala nova e já coloca o jogador que criou dentro dela. Quem
@@ -67,6 +71,7 @@ export class SalaManager {
             numberPlayers,
             roundStart,
             randomShuffle: config.randomShuffle ?? true,
+            tempoTurnoMs: this.tempoTurnoMs,
         });
 
         this.salas.set(salaId, sala);
@@ -144,6 +149,31 @@ export class SalaManager {
         }
 
         return sala;
+    }
+
+    // Reencaixa um jogador numa partida já em andamento depois de uma
+    // desconexão — diferente de entrarSala, que é só pra sala de espera.
+    // Reaproveita os mesmos códigos de erro de sala inexistente/não
+    // iniciada; NAO_ESTA_NA_SALA aqui significa "você não faz parte dessa
+    // partida" (nunca esteve na sala, ou a sala é de outra pessoa).
+    // Devolve { sala, estado } — estado é o que o GameController.estadoDeReconexao
+    // devolveu (mão atual + de quem é a vez).
+    reconectar(salaId, player) {
+        const sala = this.salas.get(salaId);
+        if (!sala) {
+            throw new ErroSala(CodigosErro.SALA_NAO_ENCONTRADA, `Sala "${salaId}" não existe.`);
+        }
+        if (!sala.iniciada) {
+            throw new ErroSala(CodigosErro.SALA_NAO_INICIADA, 'Essa sala ainda não começou — use entrarSala.');
+        }
+
+        const estado = sala.controller.estadoDeReconexao(player.id);
+        if (!estado) {
+            throw new ErroSala(CodigosErro.NAO_ESTA_NA_SALA, 'Você não faz parte dessa partida.');
+        }
+
+        sala.controller.marcarReconectado(player.id);
+        return { sala, estado };
     }
 
     // Tira o jogador da sala antes da partida começar — saída voluntária ou

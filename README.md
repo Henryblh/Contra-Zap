@@ -31,7 +31,8 @@ Isso simula uma partida inteira com 4 jogadores fixos (jogadas automáticas — 
    node Main2.js
    ```
    Cada um pede nome/senha (use qualquer um de `banco.json`, ex.: `henrique`/`123`,
-   `piconi`/`123`, `moras`/`123`, `guilherme`/`123`), depois pergunta se você
+   `piconi`/`123`, `moras`/`123`, `guilherme`/`123` — ou cadastre uma conta nova via
+   evento `cadastrar`, `Main2.js` não tem prompt pra isso ainda), depois pergunta se você
    quer criar uma sala nova ou entrar numa já aberta. O primeiro cria (e recebe
    um `salaId` pra passar pros outros); os demais escolhem "entrar" e veem a
    sala na lista. Todo mundo na sala vê a lista de jogadores atualizar em
@@ -57,6 +58,8 @@ conexao/           -> camada de sala/rede, separada das regras do jogo
   jwt.test.js          -> testes do token
   login.js            -> autentica nome/senha contra o banco e emite token de sessão
   login.test.js        -> testes do login
+  cadastro.js         -> cria conta nova (nome/senha) e já autentica, mesmo formato do login
+  cadastro.test.js     -> testes do cadastro
   SalaManager.js      -> cria salas e valida entrada de jogadores (sem saber de socket.io)
   SalaManager.test.js -> testes da camada de sala
   socketServer.js     -> liga o protocolo a sockets de verdade (única peça que conhece socket.io)
@@ -101,15 +104,17 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
 - ✅ Sair da sala (`sairSala`) antes da partida começar — voluntário ou por desconexão (aba
   fechada, rede caiu tratam igual). Se quem sai é o dono/adm, a posição passa pro próximo;
   sala vazia é descartada. Desconexão **depois** que a partida já começou não mexe no
-  roster do jogo, de propósito — é a base pra reconexão futura, não implementada ainda.
+  roster do jogo, de propósito.
 - ✅ Jogada real: o `GameController` pausa em cada turno e espera `jogarCarta` (índice da
   carta na mão) em vez de jogar sozinho — `Main2.js` já pede pra escolher a carta na sua
-  vez. Isso tira o principal bloqueador estrutural que faltava pra reconexão de verdade
-  (agora existe um "onde" pausar); ainda não tem timeout/bot pra quando ninguém responde.
-- 🚧 Reconexão de verdade (socket cair e voltar e continuar de onde parou) — token, sala
-  pessoal por jogador, roster intacto pós-desconexão e agora a pausa real por turno já dão
-  a base; falta só o evento/fluxo do lado do protocolo (reidentificar `socket.id` novo com
-  `player.id` já em jogo).
-- 🚧 Timeout/bot pra quando o jogador da vez não responde — hoje a partida trava esperando
-  pra sempre.
+  vez.
+- ✅ Timeout de turno + reconexão: cada turno tem um prazo (`tempoTurnoMs` no
+  `GameController`, 15s por padrão) — se estourar, o servidor joga sozinho (placeholder
+  simples: última carta da mão, trocar por bot de verdade é trabalho futuro) e liga uma
+  flag `desconectado` naquele jogador. O evento `reconectar` reencaixa quem voltou numa
+  partida já em andamento (devolve mão atual + de quem é a vez) e desliga a flag — testado
+  ponta a ponta: cair na própria vez aciona a jogada automática, reconectar limpa a flag.
+- ✅ Cadastro de conta nova (`cadastrar`) — nome/senha com pelo menos 3 caracteres, nome
+  único (a constraint do banco é a única fonte de verdade pra isso, não um SELECT antes),
+  senha sempre em hash. Já devolve token autenticado, sem precisar de `entrar` depois.
 - 🚧 Interface web — em desenvolvimento.

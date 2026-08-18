@@ -11,6 +11,7 @@ export class PlayerGame extends Player {
         this.mao = [];
         this.aposta = 0;
         this.adm = false;
+        this.desconectado = false;
     }
 
     comprarCarta(carta) {
@@ -36,4 +37,10 @@ export class PlayerGame extends Player {
     // configuração antes da partida começar). Ninguém seta isso ainda.
     get adm() {return this._adm;}
     set adm(valor) {this._adm = valor;}
+
+    // true quando a vez dessa pessoa estourou o tempo e o GameController
+    // jogou por ela (ver tempoTurnoMs) — sinal de que essa cadeira está no
+    // automático até ela reconectar ou jogar de verdade de novo.
+    get desconectado() {return this._desconectado;}
+    set desconectado(valor) {this._desconectado = valor;}
 }
