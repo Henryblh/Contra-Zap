@@ -12,12 +12,13 @@ const io = new Server(server);
 
 registrarSocketServer(io);
 
-// A MÁGICA ESTÁ AQUI:
-// Isso faz com que o Express sirva automaticamente o CSS e o JS da pasta public
-app.use(express.static('public'));
+// Serve o build da interface React (gerado por `npm run build` dentro de
+// public/app — ver public/app/vite.config.js, que manda a saída pra cá).
+// Se essa pasta não existir ainda, rode o build primeiro; ver README.md.
+app.use(express.static('public/dist'));
 
 app.get('/', (req, res) => {
-    res.sendFile(__dirname + '/public/index.html');
+    res.sendFile(__dirname + '/public/dist/index.html');
 });
 
 server.listen(3000, () => {

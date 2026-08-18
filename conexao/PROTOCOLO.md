@@ -77,9 +77,13 @@ Payload: `{ numberPlayers?: number, roundStart?: number, randomShuffle?: boolean
 `numberPlayers` precisa ser inteiro entre 2 e 6; `roundStart` inteiro ≥ 1 —
 fora disso, `CONFIGURACAO_INVALIDA`.
 Pré-condição: socket já mandou `entrar` com sucesso.
-Ack sucesso: `{ ok: true, salaId, numberPlayers }`. O socket já dá `join`
-na sala e recebe o primeiro `listaJogadores` (com 1 jogador: o dono, que
-também vira o adm da sala — ver `forcarInicio`).
+Ack sucesso: `{ ok: true, salaId, numberPlayers, jogadores: [{ nome }] }`. O
+socket já dá `join` na sala; `jogadores` vem no próprio ack (só 1: o dono,
+que também vira o adm — ver `forcarInicio`) porque o broadcast de
+`listaJogadores` sai *dentro* deste handler, antes do ack — um cliente que
+só registra o listener depois de processar o ack perderia esse primeiro
+broadcast pra sempre. Não confie nele pro estado inicial, só nos que vêm
+depois.
 Erros possíveis: `NAO_IDENTIFICADO`, `CONFIGURACAO_INVALIDA`.
 
 ### `entrarSala`
