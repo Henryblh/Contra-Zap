@@ -5,6 +5,7 @@
   "type": "module",
   "scripts": {
     "start": "node Server.js",
+    "gamestart": "node GameStart.js",
     "test": "node --test"
   },
   "private": true,
