@@ -74,10 +74,17 @@ Erros possíveis: `CADASTRO_INVALIDO` (nome/senha curtos demais),
 `NOME_JA_CADASTRADO`.
 
 ### `criarSala`
-Payload: `{ numberPlayers?: number, roundStart?: number, randomShuffle?: boolean }`
-(todos opcionais — default vem do `SalaManager`: 4 / 3 / true)
-`numberPlayers` precisa ser inteiro entre 2 e 6; `roundStart` inteiro ≥ 1 —
-fora disso, `CONFIGURACAO_INVALIDA`.
+Payload: `{ numberPlayers?: number, roundStart?: number, randomShuffle?: boolean, botNumber?: number }`
+(todos opcionais — default vem do `SalaManager`: 4 / 3 / true / 0)
+`numberPlayers` precisa ser inteiro entre 2 e 6; `roundStart` inteiro ≥ 1;
+`botNumber` inteiro entre 0 e `numberPlayers - 1` (sempre sobra pelo menos o
+assento de quem criou) — fora disso, `CONFIGURACAO_INVALIDA`.
+`botNumber` preenche o resto dos assentos com bots (ver `bots/Bot.js`)
+assim que a sala nasce, na ordem de entrada normal — se isso já lotar a
+sala, a partida é agendada na hora, igual qualquer `entrarSala` que lote.
+Bots não têm socket: não aparecem em `jogadorPorSocket`, nunca desconectam
+nem reconectam, e cada turno deles é decidido e jogado na hora por
+`bots/BotBrain.js`, sem esperar `tempoTurnoMs` (ver `PlayerGame.bot`).
 Pré-condição: socket já mandou `entrar` com sucesso.
 Ack sucesso: `{ ok: true, salaId, numberPlayers, jogadores: [{ nome }] }`. O
 socket já dá `join` na sala; `jogadores` vem no próprio ack (só 1: o dono,
@@ -182,12 +189,13 @@ Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`, `SALA_NAO_INICIADA`
 
 **Timeout do turno**: cada `turnoJogador` tem um prazo (`tempoTurnoMs` no
 `GameController`, 15s por padrão) pra `jogarCarta` chegar. Se estourar, o
-servidor joga sozinho por aquele jogador — hoje um placeholder bem simples
-(sempre a última carta da mão, o mesmo `pop()` de antes de existir jogada
-real; ver `escolherCartaAutomatica` em `game/GameController.js` — trocar
-isso por uma escolha de verdade é trabalho futuro) — liga a flag
-`desconectado` nele e emite `jogadaAutomatica` pra sala. A flag só desliga
-quando ele manda `jogarCarta` de novo com sucesso, ou reconecta (ver
+servidor joga sozinho por aquele jogador — mesma decisão simples usada pros
+bots de verdade (hoje sempre a última carta da mão; ver `bots/BotBrain.js`
+— trocar por uma escolha melhor, ou treinar com ML, é trabalho futuro, e
+vale tanto pra bot quanto pra timeout porque os dois passam pelo mesmo
+lugar) — liga a flag `desconectado` nele e emite `jogadaAutomatica` pra
+sala. A flag só desliga quando ele manda `jogarCarta` de novo com sucesso,
+ou reconecta (ver
 `reconectar` abaixo).
 
 Uma desconexão "do nada" (aba fechada, rede caiu) **antes** da partida
@@ -300,7 +308,7 @@ adicionado:
 | `CADASTRO_INVALIDO` | `cadastrar` com nome ou senha menor que 3 caracteres |
 | `NOME_JA_CADASTRADO` | `cadastrar` com nome que já existe no banco |
 | `NOME_INVALIDO` | `entrarSala` com nome já em uso *nessa sala* |
-| `CONFIGURACAO_INVALIDA` | `criarSala` com `numberPlayers`/`roundStart` fora do intervalo aceito |
+| `CONFIGURACAO_INVALIDA` | `criarSala` com `numberPlayers`/`roundStart`/`botNumber` fora do intervalo aceito |
 | `SALA_NAO_ENCONTRADA` | `entrarSala`/`forcarInicio`/`sairSala`/`jogarCarta`/`reconectar` com `salaId` que não existe |
 | `SALA_CHEIA` | `entrarSala` numa sala que já tem `numberPlayers` jogadores |
 | `SALA_NAO_CHEIA` | `forcarInicio` antes da sala lotar |

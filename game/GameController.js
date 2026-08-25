@@ -9,14 +9,7 @@
 import { EventEmitter } from 'node:events';
 import { Game } from './Game.js';
 import { PlayerGame } from './PlayerGame.js';
-
-// Placeholder de bot: joga a última carta da mão, igual ao pop() que o
-// motor usava antes de esperar jogada real. Só existe pra validar o
-// mecanismo de timeout — trocar por uma escolha de verdade é trabalho
-// futuro (ver PROTOCOLO.md).
-function escolherCartaAutomatica(jogador) {
-    return jogador.mao.length - 1;
-}
+import { escolherCarta, escolherAposta } from '../bots/BotBrain.js';
 
 export class GameController extends EventEmitter {
     constructor({ numberPlayers, roundStart, randomShuffle, tempoTurnoMs, limiteInatividadeMs } = {}) {
@@ -184,13 +177,23 @@ export class GameController extends EventEmitter {
     }
 
     // Igual _aguardarJogada, mas com prazo: se tempoTurnoMs passar sem
-    // jogarCarta() de verdade, joga por conta própria (placeholder de bot,
-    // ver escolherCartaAutomatica) e liga jogador.desconectado — é o sinal
-    // de que essa cadeira está no automático até reconectar ou jogar de
-    // novo (ver marcarReconectado / jogarCarta). O guard dentro do timeout
-    // existe pra não resolver duas vezes se o timer disparar bem na hora
-    // que uma jogada real também chegou.
+    // jogarCarta() de verdade, joga por conta própria (ver bots/BotBrain.js)
+    // e liga jogador.desconectado — é o sinal de que essa cadeira está no
+    // automático até reconectar ou jogar de novo (ver marcarReconectado /
+    // jogarCarta). O guard dentro do timeout existe pra não resolver duas
+    // vezes se o timer disparar bem na hora que uma jogada real também
+    // chegou.
+    //
+    // Um Bot de verdade (jogador.bot, ver bots/Bot.js) nunca tem um socket
+    // do outro lado esperando — não faz sentido segurar tempoTurnoMs pra só
+    // então jogar por ele, então decide e devolve na hora, sem passar pela
+    // espera/timeout que só existe pra dar chance de uma jogada real chegar.
     async _aguardarJogadaOuTimeout(jogador) {
+        if (jogador.bot) {
+            this.emit('turnoJogador', { id: jogador.id, jogador: jogador.nome });
+            return escolherCarta(jogador);
+        }
+
         const jogadaFeita = this._aguardarJogada(jogador);
         this.emit('turnoJogador', { id: jogador.id, jogador: jogador.nome });
 
@@ -200,7 +203,7 @@ export class GameController extends EventEmitter {
             const resolver = this._jogadaEsperada.resolver;
             this._jogadaEsperada = null;
             this.emit('jogadaAutomatica', { id: jogador.id, jogador: jogador.nome });
-            resolver(escolherCartaAutomatica(jogador));
+            resolver(escolherCarta(jogador));
         }, this.tempoTurnoMs);
         timer.unref?.();
 
@@ -266,21 +269,28 @@ export class GameController extends EventEmitter {
         return ordem[ordem.length - 1] === jogador;
     }
 
-    // Aposta usada quando o timeout estoura: 1, igual sempre foi. Só cai pra
-    // 0 se 1 violar a regra de fechamento (só pode acontecer com o último a
-    // apostar) — 0 sempre é uma alternativa válida nesse caso, porque só
-    // existe um valor proibido por vez (ver apostar()).
-    _apostaPadrao(jogador) {
-        if (this._ehUltimoAApostar(jogador) && this._somaApostasDosOutros(jogador) + 1 === this.rodada.round) {
-            return 0;
-        }
-        return 1;
+    // Aposta usada quando não há uma real (timeout, ou o turno de um Bot de
+    // verdade) — delega pra bots/BotBrain.js, só calculando a única coisa
+    // que ele não pode saber sozinho: se apostar 1 fecharia a soma da
+    // rodada exatamente no número de cartas (só pode acontecer com o
+    // último a apostar; 0 sempre é alternativa válida nesse caso, porque só
+    // existe um valor proibido por vez — ver apostar()).
+    _decidirApostaAutomatica(jogador) {
+        const permiteAposta1 = !(this._ehUltimoAApostar(jogador) && this._somaApostasDosOutros(jogador) + 1 === this.rodada.round);
+        return escolherAposta(jogador, { permiteAposta1 });
     }
 
     // Igual _aguardarJogadaOuTimeout: emite turnoAposta e dá tempoTurnoMs
-    // pra uma aposta real chegar; estourou, registra a aposta padrão (ver
-    // _apostaPadrao) e liga desconectado.
+    // pra uma aposta real chegar; estourou, registra a aposta automática
+    // (ver _decidirApostaAutomatica) e liga desconectado. Bot de verdade
+    // também não espera nada, pelo mesmo motivo de _aguardarJogadaOuTimeout.
     async _aguardarApostaOuTimeout(jogador) {
+        if (jogador.bot) {
+            this.emit('turnoAposta', { id: jogador.id, jogador: jogador.nome });
+            this._registrarAposta(jogador, this._decidirApostaAutomatica(jogador));
+            return;
+        }
+
         const apostaFeita = this._aguardarAposta(jogador);
         this.emit('turnoAposta', { id: jogador.id, jogador: jogador.nome });
 
@@ -289,7 +299,7 @@ export class GameController extends EventEmitter {
             this._registrarTimeout(jogador);
             const resolver = this._apostaEsperada.resolver;
             this._apostaEsperada = null;
-            this._registrarAposta(jogador, this._apostaPadrao(jogador));
+            this._registrarAposta(jogador, this._decidirApostaAutomatica(jogador));
             resolver();
         }, this.tempoTurnoMs);
         timer.unref?.();

@@ -13,7 +13,7 @@
 export const EventosCliente = {
     ENTRAR: 'entrar',           // { nome, senha } -> ack: { ok, nome, token }
     CADASTRAR: 'cadastrar',     // { nome, senha } -> ack: { ok, nome, token } — já autentica, sem precisar de "entrar" depois
-    CRIAR_SALA: 'criarSala',    // { numberPlayers, roundStart, randomShuffle } -> ack: { ok, salaId, numberPlayers }
+    CRIAR_SALA: 'criarSala',    // { numberPlayers, roundStart, randomShuffle, botNumber } -> ack: { ok, salaId, numberPlayers } — botNumber preenche o resto dos assentos com bots (ver bots/Bot.js)
     ENTRAR_SALA: 'entrarSala',  // { salaId } -> ack: { ok, salaId, numberPlayers, jogadores }
     LISTAR_SALAS: 'listarSalas', // {} -> ack: { ok, salas: [{ salaId, numberPlayers, jogadoresAtual }] }
     FORCAR_INICIO: 'forcarInicio', // { salaId } -> ack: { ok } — só o adm da sala, só com a sala cheia
