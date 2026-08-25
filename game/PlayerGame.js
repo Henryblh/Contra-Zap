@@ -5,6 +5,7 @@ export class PlayerGame extends Player {
     constructor(playerBase) {
         super(playerBase.nome, playerBase.senha, playerBase.rate);
         this.id = playerBase.id;
+        this.bot = playerBase.bot;
 
         this.hp = 3;
         this._steak = 0;

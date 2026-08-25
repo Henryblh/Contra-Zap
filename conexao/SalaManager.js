@@ -6,6 +6,7 @@
 // deste arquivo. Isso é o que permite testar tudo isto sem precisar de rede.
 import { randomUUID } from 'node:crypto';
 import { GameController } from '../game/GameController.js';
+import { Bot } from '../bots/Bot.js';
 import { CodigosErro } from './eventos.js';
 
 export class ErroSala extends Error {
@@ -20,7 +21,7 @@ const NUMERO_JOGADORES_MIN = 2;
 const NUMERO_JOGADORES_MAX = 6;
 const TEMPO_ESPERA_INICIO_MS_PADRAO = 15_000;
 
-function validarConfig({ numberPlayers, roundStart }) {
+function validarConfig({ numberPlayers, roundStart, botNumber }) {
     if (!Number.isInteger(numberPlayers) || numberPlayers < NUMERO_JOGADORES_MIN || numberPlayers > NUMERO_JOGADORES_MAX) {
         throw new ErroSala(
             CodigosErro.CONFIGURACAO_INVALIDA,
@@ -29,6 +30,15 @@ function validarConfig({ numberPlayers, roundStart }) {
     }
     if (!Number.isInteger(roundStart) || roundStart < 1) {
         throw new ErroSala(CodigosErro.CONFIGURACAO_INVALIDA, 'roundStart deve ser um número inteiro maior ou igual a 1.');
+    }
+    // <= numberPlayers - 1 pra sempre sobrar pelo menos o assento de quem
+    // está criando a sala — sem isso daria pra criar uma sala sem nenhum
+    // jogador de verdade nela.
+    if (!Number.isInteger(botNumber) || botNumber < 0 || botNumber > numberPlayers - 1) {
+        throw new ErroSala(
+            CodigosErro.CONFIGURACAO_INVALIDA,
+            `botNumber deve ser um número inteiro entre 0 e ${numberPlayers - 1}.`
+        );
     }
 }
 
@@ -48,7 +58,7 @@ class Sala {
 }
 
 export class SalaManager {
-    constructor({ tempoEsperaInicioMs = TEMPO_ESPERA_INICIO_MS_PADRAO, tempoTurnoMs, limiteInatividadeMs } = {}) {
+    constructor({ tempoEsperaInicioMs = TEMPO_ESPERA_INICIO_MS_PADRAO, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs } = {}) {
         this.salas = new Map();
         this.tempoEsperaInicioMs = tempoEsperaInicioMs;
         // undefined = deixa o GameController usar o próprio default (15s).
@@ -58,16 +68,24 @@ export class SalaManager {
         // undefined = deixa o GameController usar o próprio default (90s).
         // Mesmo motivo do tempoTurnoMs acima.
         this.limiteInatividadeMs = limiteInatividadeMs;
+        // undefined = deixa o GameController usar o próprio default (1s).
+        // Mesmo motivo do tempoTurnoMs acima.
+        this.atrasoBotMs = atrasoBotMs;
     }
 
     // Cria uma sala nova e já coloca o jogador que criou dentro dela. Quem
     // cria vira o adm da sala (pode forçar início antes dos 15s, ver
     // forcarInicio). Lança ErroSala com CONFIGURACAO_INVALIDA se
-    // numberPlayers/roundStart estiverem fora do intervalo aceito.
+    // numberPlayers/roundStart/botNumber estiverem fora do intervalo
+    // aceito. `botNumber` (default 0) preenche o resto dos assentos com
+    // bots (ver bots/Bot.js) assim que a sala nasce — se isso já lotar a
+    // sala, a partida é agendada na hora, igual a qualquer entrarSala que
+    // lote (ver _entrar).
     criarSala(player, config = {}) {
         const numberPlayers = config.numberPlayers ?? 4;
         const roundStart = config.roundStart ?? 3;
-        validarConfig({ numberPlayers, roundStart });
+        const botNumber = config.botNumber ?? 0;
+        validarConfig({ numberPlayers, roundStart, botNumber });
 
         const salaId = this._gerarSalaId();
         const sala = new Sala(salaId, {
@@ -76,11 +94,17 @@ export class SalaManager {
             randomShuffle: config.randomShuffle ?? true,
             tempoTurnoMs: this.tempoTurnoMs,
             limiteInatividadeMs: this.limiteInatividadeMs,
+            atrasoBotMs: this.atrasoBotMs,
         });
 
         this.salas.set(salaId, sala);
         this._entrar(sala, player);
         sala.jogadores[0].adm = true;
+
+        for (let i = 0; i < botNumber; i++) {
+            this._entrar(sala, new Bot());
+        }
+
         return sala;
     }
 

@@ -10,6 +10,7 @@ export default function Lobby({ meuNome, salaParaReconectar, onEntrouNaSala, onR
     const [salas, setSalas] = useState(null); // null = ainda não buscou
     const [numberPlayers, setNumberPlayers] = useState(4);
     const [roundStart, setRoundStart] = useState(3);
+    const [botNumber, setBotNumber] = useState(0);
     const [reconectando, setReconectando] = useState(false);
     const [erro, setErro] = useState(null);
 
@@ -36,6 +37,7 @@ export default function Lobby({ meuNome, salaParaReconectar, onEntrouNaSala, onR
             const resposta = await chamar('criarSala', {
                 numberPlayers: Number(numberPlayers),
                 roundStart: Number(roundStart),
+                botNumber: Number(botNumber),
             });
             // O ack já traz o roster inicial (não só o broadcast de
             // listaJogadores) — a tela da sala só monta depois disso, então
@@ -104,6 +106,14 @@ export default function Lobby({ meuNome, salaParaReconectar, onEntrouNaSala, onR
                             type="number" min="1"
                             value={roundStart}
                             onChange={(e) => setRoundStart(e.target.value)}
+                        />
+                    </label>
+                    <label>
+                        Bots
+                        <input
+                            type="number" min="0" max={Math.max(0, Number(numberPlayers) - 1)}
+                            value={botNumber}
+                            onChange={(e) => setBotNumber(e.target.value)}
                         />
                     </label>
                     <button onClick={criarSala}>Criar</button>
