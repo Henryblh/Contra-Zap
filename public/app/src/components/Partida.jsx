@@ -33,6 +33,13 @@ export default function Partida({ salaId, jogadoresIniciais, reconexao, meuNome,
     const [vencedor, setVencedor] = useState(null);
     const [log, setLog] = useState([]);
     const [erro, setErro] = useState(null);
+    // Espelha apostaFeita/jogadoresEliminados num formato fácil de olhar na
+    // UI (o log de eventos já registra isso, mas em texto corrido — ruim
+    // pra debugar de relance quem já apostou e quem já morreu). `apostas`
+    // zera a cada novaRodadaIniciada; `eliminados` só cresce (eliminação é
+    // definitiva na partida).
+    const [apostas, setApostas] = useState({});
+    const [eliminados, setEliminados] = useState([]);
 
     useEffect(() => {
         const registrar = (linha) => setLog((anterior) => [...anterior.slice(-49), linha]);
@@ -64,6 +71,7 @@ export default function Partida({ salaId, jogadoresIniciais, reconexao, meuNome,
                 setVira(null);
                 setJogadorDaVezAposta(null);
                 setCartasRodada(p.cartas);
+                setApostas({});
                 registrar(`Rodada ${p.numero} (${p.cartas} carta(s))`);
             },
             suaMao(p) {
@@ -84,6 +92,7 @@ export default function Partida({ salaId, jogadoresIniciais, reconexao, meuNome,
             apostaFeita(p) {
                 if (!daSala(p)) return;
                 setJogadorDaVezAposta(null);
+                setApostas((anterior) => ({ ...anterior, [p.jogador]: p.aposta }));
                 registrar(`${p.jogador} apostou ${p.aposta}`);
             },
             turnoJogador(p) {
@@ -119,7 +128,9 @@ export default function Partida({ salaId, jogadoresIniciais, reconexao, meuNome,
             },
             jogadoresEliminados(p) {
                 if (!daSala(p)) return;
-                registrar(`💀 Eliminado(s): ${p.eliminados.map((j) => j.nome).join(', ')}`);
+                const nomes = p.eliminados.map((j) => j.nome);
+                setEliminados((anterior) => [...new Set([...anterior, ...nomes])]);
+                registrar(`💀 Eliminado(s): ${nomes.join(', ')}`);
             },
             jogoFinalizado(p) {
                 if (!daSala(p)) return;
@@ -251,6 +262,25 @@ export default function Partida({ salaId, jogadoresIniciais, reconexao, meuNome,
 
             {iniciada && (
                 <section>
+                    <div className="status-jogadores">
+                        {jogadores.map((j) => {
+                            const morreu = eliminados.includes(j.nome);
+                            const aposta = apostas[j.nome];
+                            return (
+                                <span
+                                    key={j.nome}
+                                    className={`status-jogador${morreu ? ' status-jogador-morto' : ''}`}
+                                >
+                                    {morreu
+                                        ? `💀 ${j.nome} morreu`
+                                        : aposta !== undefined
+                                            ? `${j.nome} apostou ${aposta}`
+                                            : j.nome}
+                                </span>
+                            );
+                        })}
+                    </div>
+
                     <h2>{vencedor ? `Vencedor: ${vencedor}` : `Vez de: ${jogadorDaVez ?? '...'}`}</h2>
 
                     <h3>Mesa</h3>

@@ -150,6 +150,10 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
 - Debugging geral: testar cenários de borda em produção/rede real antes de
   considerar estável.
 
+- baralho tem que te id 
+
+- o player recebe a carta dos outro ???????
+
 ### Sugestões pra deixar o motor redondo antes de investir no front
 
 - `Player.rate` existe desde sempre (banco, classe, getter/setter) mas nunca
