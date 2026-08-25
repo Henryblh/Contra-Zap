@@ -5,19 +5,28 @@ import { socket, chamar } from '../socket.js';
 // só (não um por fase) porque é uma assinatura contínua dos mesmos eventos
 // do GameController, do início ao fim — ver conexao/PROTOCOLO.md pra tabela
 // completa de eventos e payloads.
-export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSala }) {
+// `reconexao`, quando presente, vem do ack de "reconectar" (chamado pela
+// Lobby depois de sair de uma partida em andamento) — { mao, cartasRodada,
+// suaVez, jogadorDaVez, suaVezDaAposta, jogadorDaVezAposta } — e é o que
+// permite montar esta tela já em andamento, sem esperar um
+// novaRodadaIniciada/suaMao/turnoAposta que já aconteceram antes da gente
+// voltar (a partida não pausa enquanto o assento está no automático). As
+// duas frentes (aposta e carta) nunca vêm preenchidas ao mesmo tempo — no
+// máximo uma delas reflete a espera de verdade, a outra some sozinha assim
+// que a fase seguinte começar de verdade.
+export default function Partida({ salaId, jogadoresIniciais, reconexao, meuNome, onSairDaSala, onSairDaPartida }) {
     // Semeado do ack de criarSala/entrarSala, não do broadcast de
     // listaJogadores — o primeiro broadcast sai antes desta tela existir
     // (e o listener abaixo com ele), então dependeria de um evento que já
     // passou. Broadcasts seguintes (mais gente entrando) chegam normal.
     const [jogadores, setJogadores] = useState(jogadoresIniciais ?? []);
     const [segundosParaIniciar, setSegundosParaIniciar] = useState(null);
-    const [iniciada, setIniciada] = useState(false);
-    const [mao, setMao] = useState([]);
-    const [jogadorDaVezAposta, setJogadorDaVezAposta] = useState(null);
+    const [iniciada, setIniciada] = useState(!!reconexao);
+    const [mao, setMao] = useState(reconexao?.mao ?? []);
+    const [jogadorDaVezAposta, setJogadorDaVezAposta] = useState(reconexao?.jogadorDaVezAposta ?? null);
     const [valorAposta, setValorAposta] = useState('');
-    const [cartasRodada, setCartasRodada] = useState(0);
-    const [jogadorDaVez, setJogadorDaVez] = useState(null);
+    const [cartasRodada, setCartasRodada] = useState(reconexao?.cartasRodada ?? 0);
+    const [jogadorDaVez, setJogadorDaVez] = useState(reconexao?.jogadorDaVez ?? null);
     const [mesa, setMesa] = useState([]);
     const [vira, setVira] = useState(null);
     const [ultimoPlacar, setUltimoPlacar] = useState([]);
@@ -28,6 +37,14 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
     useEffect(() => {
         const registrar = (linha) => setLog((anterior) => [...anterior.slice(-49), linha]);
         const daSala = (payload) => payload.salaId === salaId;
+
+        if (reconexao) {
+            if (reconexao.jogadorDaVezAposta) {
+                registrar(`🔌 Reconectado — ${reconexao.suaVezDaAposta ? 'sua vez de apostar agora' : `vez de ${reconexao.jogadorDaVezAposta} apostar`}`);
+            } else {
+                registrar(`🔌 Reconectado — ${reconexao.suaVez ? 'sua vez agora' : `vez de ${reconexao.jogadorDaVez ?? '...'}`}`);
+            }
+        }
 
         const handlers = {
             listaJogadores(p) {
@@ -106,6 +123,15 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
                 if (!daSala(p)) return;
                 registrar(`🔌 ${p.jogador} reconectou`);
             },
+            jogadorExpulsoPorInatividade(p) {
+                if (!daSala(p)) return;
+                if (p.jogador === meuNome) {
+                    registrar('⏱️ Você foi desconectado da sala por inatividade');
+                    onSairDaPartida(salaId);
+                } else {
+                    registrar(`⏱️ ${p.jogador} foi desconectado por inatividade`);
+                }
+            },
         };
 
         // Loga todo evento recebido, com nome e payload — cobre qualquer
@@ -163,13 +189,24 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
         }
     }
 
-    async function sairDaSala() {
-        try {
-            await chamar('sairSala', { salaId });
-        } catch {
-            // melhor esforço — se já iniciou, o botão nem deveria aparecer
+    // Botão de sair é sempre uma opção, antes ou depois da partida começar —
+    // só muda o que significa "sair". Antes: sairSala de verdade (tira o
+    // assento, ver PROTOCOLO.md). Depois: não existe (nem precisa existir)
+    // evento de protocolo pra isso — cair da partida "do nada" já não mexe
+    // no assento, então isso é puramente client-side, igual uma expulsão
+    // por inatividade faria: volta pra tela de salas oferecendo reconectar,
+    // e o jogo continua rodando no automático até alguém voltar.
+    async function sair() {
+        if (!iniciada) {
+            try {
+                await chamar('sairSala', { salaId });
+            } catch {
+                // melhor esforço — se a partida começou bem nesse meio tempo, cai no caso abaixo
+            }
+            onSairDaSala();
+            return;
         }
-        onSairDaSala();
+        onSairDaPartida(salaId);
     }
 
     const souEuNaVez = iniciada && jogadorDaVez === meuNome && !vencedor;
@@ -181,7 +218,9 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
         <div className="cartao cartao-larga">
             <div className="linha" style={{ justifyContent: 'space-between' }}>
                 <h1>Sala {salaId}</h1>
-                {!iniciada && <button className="secundario" onClick={sairDaSala} type="button">Sair da sala</button>}
+                <button className="secundario" onClick={sair} type="button">
+                    {iniciada ? 'Sair da partida' : 'Sair da sala'}
+                </button>
             </div>
 
             {!iniciada && (

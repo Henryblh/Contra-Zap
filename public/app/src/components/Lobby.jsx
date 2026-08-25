@@ -3,11 +3,14 @@ import { chamar } from '../socket.js';
 
 const INTERVALO_ATUALIZACAO_MS = 10_000;
 
-// Tela 2: criar uma sala nova ou listar/entrar numa já aberta.
-export default function Lobby({ meuNome, onEntrouNaSala }) {
+// Tela 2: criar uma sala nova, listar/entrar numa já aberta, ou reconectar
+// numa partida em andamento em que ainda temos assento (expulsão por
+// inatividade ou "Sair da partida" manual — ver Partida.jsx).
+export default function Lobby({ meuNome, salaParaReconectar, onEntrouNaSala, onReconectou }) {
     const [salas, setSalas] = useState(null); // null = ainda não buscou
     const [numberPlayers, setNumberPlayers] = useState(4);
     const [roundStart, setRoundStart] = useState(3);
+    const [reconectando, setReconectando] = useState(false);
     const [erro, setErro] = useState(null);
 
     async function atualizarLista() {
@@ -53,9 +56,36 @@ export default function Lobby({ meuNome, onEntrouNaSala }) {
         }
     }
 
+    // A sala nunca aparece em "Salas abertas" (listarSalas só devolve salas
+    // não iniciadas) — a partida dela já começou, então o único jeito de
+    // voltar é "reconectar" direto pelo salaId guardado no App, sem passar
+    // por entrarSala.
+    async function reconectar() {
+        setErro(null);
+        setReconectando(true);
+        try {
+            const resposta = await chamar('reconectar', { salaId: salaParaReconectar });
+            onReconectou(salaParaReconectar, resposta);
+        } catch (erroDaChamada) {
+            setErro(erroDaChamada.message);
+        } finally {
+            setReconectando(false);
+        }
+    }
+
     return (
         <div className="cartao">
             <h1>Olá, {meuNome}</h1>
+
+            {salaParaReconectar && (
+                <section>
+                    <h2>🔌 Você saiu da sala {salaParaReconectar}</h2>
+                    <p>Sua vaga na partida continua reservada.</p>
+                    <button onClick={reconectar} disabled={reconectando} type="button">
+                        {reconectando ? 'Reconectando...' : 'Reconectar'}
+                    </button>
+                </section>
+            )}
 
             <section>
                 <h2>Criar sala</h2>
