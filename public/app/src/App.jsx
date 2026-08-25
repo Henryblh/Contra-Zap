@@ -8,12 +8,15 @@ import Partida from './components/Partida.jsx';
 export default function App() {
     const [player, setPlayer] = useState(null); // { nome, token }
     const [sala, setSala] = useState(null); // { salaId, jogadoresIniciais } ou { salaId, reconexao }
-    // salaId de uma partida em andamento da qual fomos expulsos por
-    // inatividade (ver jogadorExpulsoPorInatividade em conexao/PROTOCOLO.md)
-    // — só em memória, mesma filosofia de socket.js de não persistir nada;
-    // some se a aba recarregar. É o que permite a Lobby oferecer
-    // "reconectar" de volta especificamente pra essa sala.
-    const [salaExpulsa, setSalaExpulsa] = useState(null);
+    // salaId de uma partida em andamento em que ainda temos assento mas cujo
+    // socket não está mais na room — seja por expulsão por inatividade (ver
+    // jogadorExpulsoPorInatividade em conexao/PROTOCOLO.md), seja por ter
+    // clicado em "Sair da partida" (puramente client-side: cair da partida
+    // não mexe no assento, ver PROTOCOLO.md). Só em memória, mesma filosofia
+    // de socket.js de não persistir nada; some se a aba recarregar. É o que
+    // permite a Lobby oferecer "reconectar" de volta especificamente pra
+    // essa sala.
+    const [salaParaReconectar, setSalaParaReconectar] = useState(null);
 
     if (!player) {
         return <Login onAutenticado={setPlayer} />;
@@ -22,13 +25,13 @@ export default function App() {
         return (
             <Lobby
                 meuNome={player.nome}
-                salaExpulsa={salaExpulsa}
+                salaParaReconectar={salaParaReconectar}
                 onEntrouNaSala={(salaId, jogadoresIniciais) => {
-                    setSalaExpulsa(null);
+                    setSalaParaReconectar(null);
                     setSala({ salaId, jogadoresIniciais });
                 }}
                 onReconectou={(salaId, reconexao) => {
-                    setSalaExpulsa(null);
+                    setSalaParaReconectar(null);
                     setSala({ salaId, reconexao });
                 }}
             />
@@ -41,8 +44,8 @@ export default function App() {
             reconexao={sala.reconexao}
             meuNome={player.nome}
             onSairDaSala={() => setSala(null)}
-            onExpulsoPorInatividade={(salaId) => {
-                setSalaExpulsa(salaId);
+            onSairDaPartida={(salaId) => {
+                setSalaParaReconectar(salaId);
                 setSala(null);
             }}
         />

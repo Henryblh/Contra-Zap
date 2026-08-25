@@ -6,11 +6,11 @@ import { socket, chamar } from '../socket.js';
 // do GameController, do início ao fim — ver conexao/PROTOCOLO.md pra tabela
 // completa de eventos e payloads.
 // `reconexao`, quando presente, vem do ack de "reconectar" (chamado pela
-// Lobby depois de uma expulsão por inatividade) — { mao, suaVez,
+// Lobby depois de sair de uma partida em andamento) — { mao, suaVez,
 // jogadorDaVez } — e é o que permite montar esta tela já em andamento, sem
 // esperar um novaRodadaIniciada/suaMao que já aconteceram antes da gente
 // voltar (a partida não pausa enquanto o assento está no automático).
-export default function Partida({ salaId, jogadoresIniciais, reconexao, meuNome, onSairDaSala, onExpulsoPorInatividade }) {
+export default function Partida({ salaId, jogadoresIniciais, reconexao, meuNome, onSairDaSala, onSairDaPartida }) {
     // Semeado do ack de criarSala/entrarSala, não do broadcast de
     // listaJogadores — o primeiro broadcast sai antes desta tela existir
     // (e o listener abaixo com ele), então dependeria de um evento que já
@@ -119,7 +119,7 @@ export default function Partida({ salaId, jogadoresIniciais, reconexao, meuNome,
                 if (!daSala(p)) return;
                 if (p.jogador === meuNome) {
                     registrar('⏱️ Você foi desconectado da sala por inatividade');
-                    onExpulsoPorInatividade(salaId);
+                    onSairDaPartida(salaId);
                 } else {
                     registrar(`⏱️ ${p.jogador} foi desconectado por inatividade`);
                 }
@@ -181,13 +181,24 @@ export default function Partida({ salaId, jogadoresIniciais, reconexao, meuNome,
         }
     }
 
-    async function sairDaSala() {
-        try {
-            await chamar('sairSala', { salaId });
-        } catch {
-            // melhor esforço — se já iniciou, o botão nem deveria aparecer
+    // Botão de sair é sempre uma opção, antes ou depois da partida começar —
+    // só muda o que significa "sair". Antes: sairSala de verdade (tira o
+    // assento, ver PROTOCOLO.md). Depois: não existe (nem precisa existir)
+    // evento de protocolo pra isso — cair da partida "do nada" já não mexe
+    // no assento, então isso é puramente client-side, igual uma expulsão
+    // por inatividade faria: volta pra tela de salas oferecendo reconectar,
+    // e o jogo continua rodando no automático até alguém voltar.
+    async function sair() {
+        if (!iniciada) {
+            try {
+                await chamar('sairSala', { salaId });
+            } catch {
+                // melhor esforço — se a partida começou bem nesse meio tempo, cai no caso abaixo
+            }
+            onSairDaSala();
+            return;
         }
-        onSairDaSala();
+        onSairDaPartida(salaId);
     }
 
     const souEuNaVez = iniciada && jogadorDaVez === meuNome && !vencedor;
@@ -199,7 +210,9 @@ export default function Partida({ salaId, jogadoresIniciais, reconexao, meuNome,
         <div className="cartao cartao-larga">
             <div className="linha" style={{ justifyContent: 'space-between' }}>
                 <h1>Sala {salaId}</h1>
-                {!iniciada && <button className="secundario" onClick={sairDaSala} type="button">Sair da sala</button>}
+                <button className="secundario" onClick={sair} type="button">
+                    {iniciada ? 'Sair da partida' : 'Sair da sala'}
+                </button>
             </div>
 
             {!iniciada && (
