@@ -153,9 +153,10 @@ export class SalaManager {
 
     // Registra a aposta de um jogador — só vale numa sala com partida em
     // andamento. Mesma tradução de erro que jogarCarta: NAO_E_SUA_VEZ se não
-    // for a vez dele de apostar, APOSTA_INVALIDA se o valor não for um
-    // inteiro não-negativo (limites de verdade — ex.: não fechar a rodada —
-    // ainda não existem).
+    // for a vez dele de apostar, APOSTA_INVALIDA se o valor estiver fora de
+    // [0, número de cartas da rodada], APOSTA_FECHA_RODADA se ele for o
+    // último a apostar e o valor fechar a soma de todo mundo no número de
+    // cartas (ver GameController.apostar).
     apostar(salaId, player, valor) {
         const sala = this.salas.get(salaId);
         if (!sala) {
@@ -169,6 +170,9 @@ export class SalaManager {
         if (!resultado.ok) {
             if (resultado.motivo === 'NAO_E_SUA_VEZ') {
                 throw new ErroSala(CodigosErro.NAO_E_SUA_VEZ, 'Não é a sua vez de apostar.');
+            }
+            if (resultado.motivo === 'APOSTA_FECHA_RODADA') {
+                throw new ErroSala(CodigosErro.APOSTA_FECHA_RODADA, 'Esse valor fecharia a soma das apostas no número de cartas da rodada — escolha outro.');
             }
             throw new ErroSala(CodigosErro.APOSTA_INVALIDA, 'Valor de aposta inválido.');
         }

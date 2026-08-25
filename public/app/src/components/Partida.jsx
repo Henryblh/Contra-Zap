@@ -16,6 +16,7 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
     const [mao, setMao] = useState([]);
     const [jogadorDaVezAposta, setJogadorDaVezAposta] = useState(null);
     const [valorAposta, setValorAposta] = useState('');
+    const [cartasRodada, setCartasRodada] = useState(0);
     const [jogadorDaVez, setJogadorDaVez] = useState(null);
     const [mesa, setMesa] = useState([]);
     const [vira, setVira] = useState(null);
@@ -45,6 +46,7 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
                 setMesa([]);
                 setVira(null);
                 setJogadorDaVezAposta(null);
+                setCartasRodada(p.cartas);
                 registrar(`Rodada ${p.numero} (${p.cartas} carta(s))`);
             },
             suaMao(p) {
@@ -130,8 +132,8 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
         evento.preventDefault();
         setErro(null);
         const valor = Number(valorAposta);
-        if (!Number.isInteger(valor) || valor < 0) {
-            setErro('Aposta precisa ser um número inteiro maior ou igual a 0.');
+        if (!Number.isInteger(valor) || valor < 0 || valor > cartasRodada) {
+            setErro(`Aposta precisa ser um número inteiro entre 0 e ${cartasRodada}.`);
             return;
         }
         try {
@@ -226,7 +228,7 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
                                     <label>
                                         Quantas vazas você acha que vai fazer?
                                         <input
-                                            type="number" min="0"
+                                            type="number" min="0" max={cartasRodada}
                                             value={valorAposta}
                                             onChange={(e) => setValorAposta(e.target.value)}
                                             autoFocus

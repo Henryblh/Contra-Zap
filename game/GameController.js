@@ -210,9 +210,38 @@ export class GameController extends EventEmitter {
         });
     }
 
+    // Soma das apostas já registradas pelos outros jogadores da rodada (o
+    // próprio `jogador` fica de fora da soma, apostado ou não). Só faz
+    // sentido chamar isso pelo último a apostar — pros demais, ainda tem
+    // gente sem apostar (valor default 0), então a soma não representaria
+    // "todo mundo menos eu".
+    _somaApostasDosOutros(jogador) {
+        return this.rodada.gameOrder.reduce((soma, j) => j === jogador ? soma : soma + j.aposta, 0);
+    }
+
+    // true só pro último jogador a apostar na rodada (ordem de
+    // rodada.gameOrder, a mesma em que _jogarRodadaAtual pede as apostas) —
+    // é o único cuja aposta fecha (ou não) a soma de todo mundo, porque
+    // todos os outros já apostaram quando chega a vez dele.
+    _ehUltimoAApostar(jogador) {
+        const ordem = this.rodada.gameOrder;
+        return ordem[ordem.length - 1] === jogador;
+    }
+
+    // Aposta usada quando o timeout estoura: 1, igual sempre foi. Só cai pra
+    // 0 se 1 violar a regra de fechamento (só pode acontecer com o último a
+    // apostar) — 0 sempre é uma alternativa válida nesse caso, porque só
+    // existe um valor proibido por vez (ver apostar()).
+    _apostaPadrao(jogador) {
+        if (this._ehUltimoAApostar(jogador) && this._somaApostasDosOutros(jogador) + 1 === this.rodada.round) {
+            return 0;
+        }
+        return 1;
+    }
+
     // Igual _aguardarJogadaOuTimeout: emite turnoAposta e dá tempoTurnoMs
-    // pra uma aposta real chegar; estourou, registra aposta 1 (mesmo default
-    // de antes desse marco) e liga desconectado.
+    // pra uma aposta real chegar; estourou, registra a aposta padrão (ver
+    // _apostaPadrao) e liga desconectado.
     async _aguardarApostaOuTimeout(jogador) {
         const apostaFeita = this._aguardarAposta(jogador);
         this.emit('turnoAposta', { id: jogador.id, jogador: jogador.nome });
@@ -222,7 +251,7 @@ export class GameController extends EventEmitter {
             jogador.desconectado = true;
             const resolver = this._apostaEsperada.resolver;
             this._apostaEsperada = null;
-            this._registrarAposta(jogador, 1);
+            this._registrarAposta(jogador, this._apostaPadrao(jogador));
             resolver();
         }, this.tempoTurnoMs);
         timer.unref?.();
@@ -233,18 +262,30 @@ export class GameController extends EventEmitter {
 
     // Chamado de fora (via protocolo) quando um jogador manda a aposta dele.
     // Mesmo formato de retorno de jogarCarta: { ok: true } se aceita, ou
-    // { ok: false, motivo } se não for a vez dele ou o valor for inválido —
-    // limites de aposta (ex.: não pode fechar a rodada) ainda não existem,
-    // só a validação básica de "é um número inteiro não-negativo".
+    // { ok: false, motivo } se não for a vez dele ou o valor for inválido.
+    // Dois limites: `valor` tem que estar entre 0 e o número de cartas da
+    // rodada (fora disso, não faz sentido apostar mais vazas do que existem
+    // cartas pra fazer); e o ÚLTIMO a apostar não pode escolher o valor que
+    // fecha a soma de todo mundo exatamente no número de cartas — isso
+    // garantiria que alguém acerta a aposta sem perder vida, o que não pode
+    // (é justamente por isso que a ordem de aposta precisa ser aleatória:
+    // ser o último é uma desvantagem real, então não pode ser sempre a
+    // mesma pessoa por ter entrado por último na sala).
     apostar(playerId, valor) {
         if (!this._apostaEsperada || this._apostaEsperada.jogadorId !== playerId) {
             return { ok: false, motivo: 'NAO_E_SUA_VEZ' };
         }
-        if (!Number.isInteger(valor) || valor < 0) {
+
+        const numCartas = this.rodada.round;
+        if (!Number.isInteger(valor) || valor < 0 || valor > numCartas) {
             return { ok: false, motivo: 'APOSTA_INVALIDA' };
         }
 
         const jogador = this.jogadores.find(j => j.id === playerId);
+        if (this._ehUltimoAApostar(jogador) && this._somaApostasDosOutros(jogador) + valor === numCartas) {
+            return { ok: false, motivo: 'APOSTA_FECHA_RODADA' };
+        }
+
         jogador.desconectado = false; // apostou de verdade — claramente está de volta
         const resolver = this._apostaEsperada.resolver;
         this._apostaEsperada = null;

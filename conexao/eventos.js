@@ -60,7 +60,8 @@ export const CodigosErro = {
     NAO_AUTORIZADO: 'NAO_AUTORIZADO',       // forcarInicio por quem não é o adm da sala
     NAO_E_SUA_VEZ: 'NAO_E_SUA_VEZ',         // jogarCarta/apostar fora da sua vez
     CARTA_INVALIDA: 'CARTA_INVALIDA',       // jogarCarta com índice fora da mão
-    APOSTA_INVALIDA: 'APOSTA_INVALIDA',     // apostar com valor que não é um inteiro não-negativo
+    APOSTA_INVALIDA: 'APOSTA_INVALIDA',     // apostar com valor fora de [0, número de cartas da rodada]
+    APOSTA_FECHA_RODADA: 'APOSTA_FECHA_RODADA', // último a apostar não pode escolher o valor que fecha a soma das apostas no número de cartas
     USUARIO_NAO_ENCONTRADO: 'USUARIO_NAO_ENCONTRADO', // login: nome não existe no banco
     SENHA_INCORRETA: 'SENHA_INCORRETA',               // login: nome existe, senha não bate
     CADASTRO_INVALIDO: 'CADASTRO_INVALIDO',           // cadastrar: nome/senha fora do tamanho mínimo aceito

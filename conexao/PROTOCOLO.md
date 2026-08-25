@@ -143,13 +143,29 @@ Ack sucesso: `{ ok: true }`. Libera a espera do servidor e o `apostaFeita`
 sai pra sala inteira; segue pro próximo `turnoAposta` ou, se era o último,
 pro início da primeira vaza.
 Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`, `SALA_NAO_INICIADA`,
-`NAO_E_SUA_VEZ`, `APOSTA_INVALIDA` (`valor` não é um inteiro não-negativo —
-limites de verdade, como não poder fechar a rodada, ainda não existem).
+`NAO_E_SUA_VEZ`, `APOSTA_INVALIDA` (`valor` não é um inteiro entre 0 e o
+número de cartas da rodada), `APOSTA_FECHA_RODADA` (só pode acontecer com o
+**último** jogador a apostar na rodada — ver limite abaixo).
+
+**Limites de aposta**:
+- `valor` tem que ser um inteiro entre `0` e o número de cartas da rodada
+  (o mesmo `cartas` que veio em `novaRodadaIniciada`) — não faz sentido
+  apostar mais vazas do que existem cartas pra fazer.
+- A soma das apostas de todo mundo não pode fechar exatamente no número de
+  cartas da rodada — isso garantiria que pelo menos alguém acerta sem
+  arriscar nada. Só o **último** jogador a apostar na rodada esbarra nisso
+  na prática (os outros ainda não sabem a soma final); se o valor que ele
+  mandou fecharia a soma, o servidor recusa com `APOSTA_FECHA_RODADA` e ele
+  precisa escolher outro. É por isso que a ordem de aposta (`Game.setstartsequence`)
+  precisa ser sorteada de verdade a cada partida: ser o último a apostar é
+  uma desvantagem real (perde a liberdade de escolher qualquer valor), então
+  não pode ser sempre a mesma pessoa só por ter entrado por último na sala.
 
 **Timeout da aposta**: mesmo prazo de `jogarCarta` (`tempoTurnoMs`). Se
-estourar, o servidor aposta 1 sozinho por aquele jogador (mesmo default de
-antes desse marco), liga a flag `desconectado` — sem emitir um evento à
-parte, só o `apostaFeita` normal com o valor 1.
+estourar, o servidor aposta por aquele jogador sozinho — 1, a não ser que
+isso viole o limite acima (só possível se ele for o último a apostar), caso
+em que aposta 0 — liga a flag `desconectado`, sem emitir um evento à parte,
+só o `apostaFeita` normal com o valor escolhido.
 
 ### `jogarCarta`
 Payload: `{ salaId: string, indice: number }` — `indice` é a posição da
@@ -255,7 +271,8 @@ adicionado:
 | `NAO_AUTORIZADO` | `forcarInicio` por quem não é o adm da sala |
 | `NAO_E_SUA_VEZ` | `jogarCarta`/`apostar` fora da sua vez |
 | `CARTA_INVALIDA` | `jogarCarta` com `indice` que não existe na mão de quem mandou |
-| `APOSTA_INVALIDA` | `apostar` com `valor` que não é um inteiro não-negativo |
+| `APOSTA_INVALIDA` | `apostar` com `valor` fora de `[0, número de cartas da rodada]` |
+| `APOSTA_FECHA_RODADA` | `apostar` pelo último da rodada com `valor` que fecharia a soma de todo mundo no número de cartas |
 | `ERRO_INTERNO` | Exceção inesperada no servidor — não deveria acontecer; se aparecer, é bug |
 
 ## O que fica fora deste marco (decisão adiada, não esquecida)
@@ -272,10 +289,6 @@ adicionado:
 - Abandono/forfeit de partida em andamento (hoje só dá pra sair antes de
   começar, via `sairSala` — uma vez que a partida começa, o único jeito de
   "sair" é deixar o timeout jogar automático por você indefinidamente).
-- Limites de aposta (ex.: a soma das apostas não pode fechar exatamente o
-  número de vazas da rodada, valor máximo por rodada). Hoje `apostar` só
-  valida que `valor` é um inteiro não-negativo — qualquer valor dentro disso
-  é aceito.
 - Reconectar durante a espera de uma aposta (`turnoAposta` pendente): o
   `estadoDeReconexao` do `GameController` hoje só cobre a espera de
   `jogarCarta` (`turnoJogador`); reconectar no meio de uma janela de aposta
