@@ -15,8 +15,9 @@ export class Baralho {
         let idGeral = 0; // Mantém IDs únicos mesmo em múltiplos baralhos
 
         for (let b = 0; b < this.numbaralho; b++) {
-            // Constrói um baralho de 40 cartas
-            let deckAtual = this.construirUmBaralho(idGeral);
+            // Constrói um baralho de 40 cartas — b+1 porque o baralho é
+            // identificado como 1, 2, 3... pro jogador (ver Carta.numeroBaralho)
+            let deckAtual = this.construirUmBaralho(idGeral, b + 1);
             idGeral += 40; // Prepara o ID para o próximo baralho não repetir
 
             if (!this.randomShuffle) {
@@ -40,7 +41,7 @@ export class Baralho {
     }
 
     // Função separada que retorna um array de 40 cartas
-    construirUmBaralho(idInicial) {
+    construirUmBaralho(idInicial, numeroBaralho) {
         const naipes = { 'Ouros': 0, 'Espadas': 1, 'Copas': 2, 'Paus': 3 };
         const valores = { '4': 0, '5': 1, '6': 2, '7': 3, 'Q': 4, 'J': 5, 'K': 6, 'A': 7, '2': 8, '3': 9 };
 
@@ -49,7 +50,7 @@ export class Baralho {
 
         for (const [nomeNaipe, naipeInt] of Object.entries(naipes)) {
             for (const [nomeValor, valorInt] of Object.entries(valores)) {
-                const novaCarta = new Carta(idCarta, naipeInt, valorInt, nomeNaipe, nomeValor);
+                const novaCarta = new Carta(idCarta, naipeInt, valorInt, nomeNaipe, nomeValor, numeroBaralho);
                 deck.push(novaCarta);
                 idCarta++;
             }
