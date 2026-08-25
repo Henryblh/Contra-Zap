@@ -12,6 +12,8 @@ export class PlayerGame extends Player {
         this.aposta = 0;
         this.adm = false;
         this.desconectado = false;
+        this.ultimaAcaoEm = Date.now();
+        this.expulsoPorInatividade = false;
     }
 
     comprarCarta(carta) {
@@ -43,4 +45,18 @@ export class PlayerGame extends Player {
     // automático até ela reconectar ou jogar de verdade de novo.
     get desconectado() {return this._desconectado;}
     set desconectado(valor) {this._desconectado = valor;}
+
+    // Timestamp (Date.now()) da última ação real dessa pessoa (jogar carta,
+    // apostar ou reconectar) — GameController usa isso pra medir inatividade
+    // de verdade (tempo, não turnos), já que entre os turnos dela o relógio
+    // de tempoTurnoMs não anda.
+    get ultimaAcaoEm() {return this._ultimaAcaoEm;}
+    set ultimaAcaoEm(valor) {this._ultimaAcaoEm = valor;}
+
+    // true depois que a inatividade dela passou de limiteInatividadeMs e o
+    // GameController já expulsou o socket da sala (ver
+    // jogadorExpulsoPorInatividade) — evita reemitir esse evento a cada novo
+    // timeout enquanto ela continuar sumida. Desliga só numa ação real.
+    get expulsoPorInatividade() {return this._expulsoPorInatividade;}
+    set expulsoPorInatividade(valor) {this._expulsoPorInatividade = valor;}
 }

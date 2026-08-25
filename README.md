@@ -1,80 +1,74 @@
 # Contra ZAP
 
-Motor de regras de um jogo de cartas estilo truco, jogado no console por enquanto (front/conexão em desenvolvimento).
+Jogo de cartas estilo truco, multiplayer, jogado no navegador. Motor de regras
+em Node.js, comunicação em tempo real via Socket.io, front-end em React.
 
 ## Pré-requisitos
 
 - [Node.js](https://nodejs.org/) instalado (qualquer versão recente, 18+).
 
-## Como rodar
+## Como rodar o projeto (comece por aqui)
 
-1. Clone o repositório e entre na pasta do projeto.
-2. Instale as dependências:
+Se o `Server.js` já estiver rodando em algum terminal seu, **feche ele**
+(`Ctrl+C`) antes de continuar — nenhuma das opções abaixo funciona com dois
+`Server.js` rodando ao mesmo tempo.
+
+**Opção automática** — execute o comando para: (instala dependências, builda
+o front-end e sobe o servidor)
+```
+node GameStart.js
+```
+(ou `npm run gamestart`, é a mesma coisa). Espere terminar e abra
+[localhost:3000](http://localhost:3000).
+
+**OU, manualmente, passo a passo:**
+
+1. Instale as dependências, na raiz do projeto:
    ```
    npm install
    ```
-3. Rode a partida de teste:
+2. Gere o build do front-end:
    ```
-   node Main.js
+   cd public/app
+   npm run build
    ```
-
-Isso simula uma partida inteira com 4 jogadores fixos (jogadas automáticas — sempre a última carta da mão) e imprime tudo no terminal: mãos, manilha, jogadas, vazas e o vencedor final.
-
-## Como testar a sala multiplayer (login + criar/entrar em sala)
-
-1. Num terminal, suba o servidor:
+3. Volte pra raiz do projeto e, num terminal separado, suba o servidor:
    ```
    npm start
    ```
-2. Em até 4 terminais separados, rode um jogador cada:
-   ```
-   node Main2.js
-   ```
-   Cada um pede nome/senha (use qualquer um de `banco.json`, ex.: `henrique`/`123`,
-   `piconi`/`123`, `moras`/`123`, `guilherme`/`123` — ou cadastre uma conta nova via
-   evento `cadastrar`, `Main2.js` não tem prompt pra isso ainda), depois pergunta se você
-   quer criar uma sala nova ou entrar numa já aberta. O primeiro cria (e recebe
-   um `salaId` pra passar pros outros); os demais escolhem "entrar" e veem a
-   sala na lista. Todo mundo na sala vê a lista de jogadores atualizar em
-   tempo real conforme cada um entra. Quando a sala lota (padrão 4), a
-   partida começa sozinha 15s depois — cada terminal só imprime a própria
-   mão (`suaMao` é privado, roteado por jogador) e o resto da partida
-   (manilha, jogadas, vazas, vencedor) em tempo real. **Na sua vez**, o
-   terminal lista as cartas da mão numeradas e pergunta qual jogar — a
-   partida só segue depois que você escolhe (sem timeout ainda: se ninguém
-   responder, ela fica esperando).
+4. Abra [localhost:3000](http://localhost:3000) no navegador.
 
-## Como rodar a interface web (front-end React)
+Qualquer uma das duas formas é suficiente pra ter o sistema completo rodando
+(login, salas, partida) do jeito que vai pra "produção".
 
-O `Server.js` (porta 3000) serve arquivos estáticos de `public/dist` — **não**
-tem hot-reload embutido nesse fluxo. `public/dist` só é gerado/atualizado por
-um build explícito (`npm run build` dentro de `public/app`); reiniciar o
-`Server.js` sozinho não reflete nenhuma mudança no `public/app/src`, porque
-ele não sabe nada sobre o código-fonte, só serve o que já está buildado.
+### Mexendo no front-end (React)
 
-Duas formas de rodar, dependendo do que você quer:
+`public/dist` (o que o `Server.js` serve) só é atualizado quando você roda
+`npm run build` — reiniciar o `Server.js` sozinho **não** reflete mudanças em
+`public/app/src`. Pra não ter que buildar toda hora enquanto desenvolve:
 
-- **Testar como em produção** (build único, sem hot-reload):
-  ```
-  cd public/app
-  npm run build
-  ```
-  Depois suba/mantenha `npm start` na raiz e abra `localhost:3000`. Repita o
-  `npm run build` a cada mudança no front — e dê um hard refresh
-  (`Ctrl+Shift+R`) no navegador pra não pegar cache antigo.
+1. Num terminal, na raiz: `npm start` (sobe só o back-end, porta 3000).
+2. Em outro terminal, dentro de `public/app`: `npm run dev` (sobe o Vite,
+   porta 5173, já configurado em `vite.config.js` pra proxiar `/socket.io`
+   pro back-end em `:3000`).
+3. Abra `localhost:5173` — qualquer edição em `public/app/src` aparece na
+   hora, sem precisar buildar nem reiniciar nada.
 
-- **Desenvolvendo o front** (hot-reload automático, recomendado no dia a dia):
-  1. Num terminal, na raiz: `npm start` (sobe só o backend, porta 3000).
-  2. Em outro terminal, dentro de `public/app`: `npm run dev` (sobe o Vite,
-     porta 5173, já configurado em `vite.config.js` pra proxiar `/socket.io`
-     pro backend em `:3000`).
-  3. Abra `localhost:5173` — qualquer edição em `public/app/src` aparece na
-     hora, sem precisar buildar nem reiniciar nada.
+O código do front fica todo em `public/app/src`:
+- `App.jsx` — componente raiz, decide qual tela mostrar.
+- `socket.js` — conexão com o back-end via socket.io-client.
+- `components/Login.jsx`, `Lobby.jsx`, `Partida.jsx` — as três telas
+  principais (login/cadastro, sala de espera, partida em si).
+
+**Antes de mexer no protocolo de eventos (o que o cliente manda/recebe do
+servidor), leia `conexao/PROTOCOLO.md`** — é a fonte de verdade de todos os
+eventos socket.io, payloads e erros possíveis.
 
 ## Estrutura do projeto
 
 ```
-game/              -> regras do jogo (baralho, cartas, mesa, rodada, jogadores)
+game/              -> regras do jogo (baralho, cartas, mesa, rodada, jogadores),
+                      não sabe nada sobre servidor, socket ou front-end
   GameController.js  -> orquestra uma partida inteira e emite eventos (mão distribuída,
                          carta jogada, vaza fechada, etc.)
 conexao/           -> camada de sala/rede, separada das regras do jogo
@@ -82,31 +76,22 @@ conexao/           -> camada de sala/rede, separada das regras do jogo
   PROTOCOLO.md        -> contrato dos eventos socket.io (payloads, fluxo, erros)
   db.js               -> persistência de usuários em SQLite (única peça que sabe SQL)
   jwt.js              -> emite e verifica o token de sessão (JWT assinado, HS256)
-  jwt.test.js          -> testes do token
   login.js            -> autentica nome/senha contra o banco e emite token de sessão
-  login.test.js        -> testes do login
   cadastro.js         -> cria conta nova (nome/senha) e já autentica, mesmo formato do login
-  cadastro.test.js     -> testes do cadastro
   SalaManager.js      -> cria salas e valida entrada de jogadores (sem saber de socket.io)
-  SalaManager.test.js -> testes da camada de sala
   socketServer.js     -> liga o protocolo a sockets de verdade (única peça que conhece socket.io)
-  socketServer.test.js -> testes de integração ponta a ponta (servidor + clientes reais)
-banco.json         -> fixture inicial de usuários (nome/senha em texto puro), usada só pra
-                      semear o banco.sqlite na primeira execução
-banco.sqlite       -> banco de verdade (gerado automaticamente, não versionado) — senha
-                      sempre em hash (bcrypt), nunca texto puro
-jwt.secret         -> segredo de assinatura do JWT (gerado automaticamente, não versionado)
-Main.js            -> harness de teste: escuta os eventos do GameController e imprime no console
-Main2.js           -> harness de um jogador de verdade: login + criar/entrar em sala via socket.io
-index.js           -> ponto de entrada do módulo (exporta as classes do jogo)
+public/app/        -> código-fonte do front-end (React + Vite)
+  src/App.jsx         -> componente raiz
+  src/socket.js       -> conexão socket.io-client com o back-end
+  src/components/     -> telas (Login, Lobby, Partida)
+public/dist/       -> build do front-end (gerado por `npm run build`, servido pelo Server.js)
 Server.js          -> servidor web (Express + Socket.io), liga `conexao/socketServer.js`
-public/            -> front-end estático (em construção)
+GameStart.js       -> atalho: instala dependências, builda o front e sobe o Server.js, tudo de uma vez
+banco.json         -> fixture inicial de usuários, usada só pra semear o banco.sqlite na 1ª execução
+banco.sqlite       -> banco de verdade (gerado automaticamente, não versionado)
+jwt.secret         -> segredo de assinatura do JWT (gerado automaticamente, não versionado)
+index.js           -> ponto de entrada do módulo (exporta as classes do jogo)
 ```
-
-O jogo em si (pasta `game/`) não sabe nada sobre servidor, socket ou console — só regras.
-Dentro de `conexao/`, só o `socketServer.js` sabe o que é um socket.io — `login.js` e
-`SalaManager.js` trabalham só com objetos de domínio (`Player`, `Sala`), o que é o que
-permite testá-los sem precisar de rede nenhuma.
 
 ## Como rodar os testes
 
@@ -118,30 +103,31 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
 
 ## Status atual
 
-- ✅ Regras da partida completas (apostas, vazas, manilha, eliminação por hp).
-- ✅ Login (nome/senha contra banco SQLite com senha em hash) e token de sessão assinado
-  (JWT, expira em 6h, sobrevive a restart do processo) e sala multiplayer (criar, entrar,
-  listar salas abertas) funcionando ponta a ponta via socket.io — testado com 4 conexões
-  reais simultâneas.
-- ✅ Sala cheia → partida começa sozinha (15s de espera, ou na hora se o dono/adm mandar
-  `forcarInicio`). Todo evento de jogo é retransmitido pro cliente certo: broadcast de
-  sala pra informação pública (jogadas, vazas, manilha, placar), e privado por jogador
-  (`suaMao`, via sala pessoal `jogador:<id>`) pra mão de cada um — testado ponta a ponta
-  com 4 conexões reais confirmando que ninguém vê a mão de outro jogador.
-- ✅ Sair da sala (`sairSala`) antes da partida começar — voluntário ou por desconexão (aba
-  fechada, rede caiu tratam igual). Se quem sai é o dono/adm, a posição passa pro próximo;
-  sala vazia é descartada. Desconexão **depois** que a partida já começou não mexe no
-  roster do jogo, de propósito.
-- ✅ Jogada real: o `GameController` pausa em cada turno e espera `jogarCarta` (índice da
-  carta na mão) em vez de jogar sozinho — `Main2.js` já pede pra escolher a carta na sua
-  vez.
-- ✅ Timeout de turno + reconexão: cada turno tem um prazo (`tempoTurnoMs` no
-  `GameController`, 15s por padrão) — se estourar, o servidor joga sozinho (placeholder
-  simples: última carta da mão, trocar por bot de verdade é trabalho futuro) e liga uma
-  flag `desconectado` naquele jogador. O evento `reconectar` reencaixa quem voltou numa
-  partida já em andamento (devolve mão atual + de quem é a vez) e desliga a flag — testado
-  ponta a ponta: cair na própria vez aciona a jogada automática, reconectar limpa a flag.
-- ✅ Cadastro de conta nova (`cadastrar`) — nome/senha com pelo menos 3 caracteres, nome
-  único (a constraint do banco é a única fonte de verdade pra isso, não um SELECT antes),
-  senha sempre em hash. Já devolve token autenticado, sem precisar de `entrar` depois.
-- 🚧 Interface web — em desenvolvimento.
+- ✅ Motor de jogo completo: apostas, vazas, manilha, eliminação por hp.
+- ✅ Autenticação (login/cadastro com senha em hash) e sessão via JWT.
+- ✅ Salas multiplayer ponta a ponta: criar, entrar, listar, sair, início
+  automático quando lota (ou forçado pelo dono).
+- ✅ Partida real via socket.io: jogadas, mão privada por jogador, vazas,
+  placar, tudo em tempo real.
+- ✅ Timeout de turno com jogada automática (placeholder simples) +
+  reconexão de quem caiu no meio da partida.
+- ✅ Interface web em React funcionando ponta a ponta (login, lobby, partida).
+
+## Ferramentas de debug (linha de comando)
+
+
+- `node Main.js` — simula uma partida inteira com 4 jogadores fixos, sem
+  rede nenhuma, jogadas automáticas. Bom pra testar regras do `game/` isoladas.
+- `node Main2.js` — conecta num `Server.js` já rodando como um jogador de
+  verdade (login + criar/entrar em sala) via terminal. Rode até 4 instâncias
+  em terminais separados pra simular uma mesa completa. Use nomes de
+  `banco.json` (ex.: `henrique`/`123`).
+
+## O que falta fazer
+
+- Bots de verdade (hoje o timeout de turno só repete a última carta da mão,
+  não joga de forma inteligente).
+- Subir o servidor num ambiente de verdade, com sockets web funcionando fora
+  da rede local (hoje só foi testado em `localhost`).
+- Debugging geral: testar cenários de borda em produção/rede real antes de
+  considerar estável.

@@ -48,13 +48,16 @@ class Sala {
 }
 
 export class SalaManager {
-    constructor({ tempoEsperaInicioMs = TEMPO_ESPERA_INICIO_MS_PADRAO, tempoTurnoMs } = {}) {
+    constructor({ tempoEsperaInicioMs = TEMPO_ESPERA_INICIO_MS_PADRAO, tempoTurnoMs, limiteInatividadeMs } = {}) {
         this.salas = new Map();
         this.tempoEsperaInicioMs = tempoEsperaInicioMs;
         // undefined = deixa o GameController usar o próprio default (15s).
         // Só existe como opção aqui pra testes conseguirem injetar um valor
         // bem menor sem precisar mexer em GameController diretamente.
         this.tempoTurnoMs = tempoTurnoMs;
+        // undefined = deixa o GameController usar o próprio default (90s).
+        // Mesmo motivo do tempoTurnoMs acima.
+        this.limiteInatividadeMs = limiteInatividadeMs;
     }
 
     // Cria uma sala nova e já coloca o jogador que criou dentro dela. Quem
@@ -72,6 +75,7 @@ export class SalaManager {
             roundStart,
             randomShuffle: config.randomShuffle ?? true,
             tempoTurnoMs: this.tempoTurnoMs,
+            limiteInatividadeMs: this.limiteInatividadeMs,
         });
 
         this.salas.set(salaId, sala);
@@ -243,6 +247,25 @@ export class SalaManager {
                 numberPlayers: sala.numberPlayers,
                 jogadoresAtual: sala.jogadores.length,
             }));
+    }
+
+    // Acha uma partida já em andamento em que esse playerId ainda tem
+    // assento — é o que permite um socket recém-autenticado (ex.: depois de
+    // um refresh de página, sem estado nenhum guardado no cliente) descobrir
+    // sozinho que existe uma partida esperando por ele, sem saber o salaId
+    // de antemão (ver EventosCliente.MINHA_SALA_ATIVA). Salas não iniciadas
+    // não contam — lá "sair" já é de verdade (ver sairSala), não tem assento
+    // pra descobrir. Se o jogador tiver mais de uma (hoje possível: nada
+    // impede criar/entrar numa sala nova depois de sair de outra em
+    // andamento), devolve a primeira encontrada — caso raro, não vale a
+    // complexidade de devolver uma lista ainda.
+    salaAtivaDoJogador(playerId) {
+        for (const sala of this.salas.values()) {
+            if (sala.iniciada && sala.jogadores.some(jogador => jogador.id === playerId)) {
+                return sala.salaId;
+            }
+        }
+        return null;
     }
 
     _entrar(sala, player) {

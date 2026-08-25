@@ -25,6 +25,12 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
     // espera. É o que permite o disconnect saber de qual sala tirar o
     // jogador, sem precisar varrer todas as salas procurando por ele.
     const salaPorSocket = new Map();
+    // Player.id -> socket.id do socket autenticado mais recente dele.
+    // Reconectar troca de socket.id a cada vez, então isto sempre aponta pro
+    // atual — é o que permite achar o socket de alguém a partir do id de
+    // jogador que o GameController emite (ex.: jogadorExpulsoPorInatividade),
+    // sem varrer jogadorPorSocket inteiro.
+    const socketPorJogador = new Map();
 
     io.on('connection', (socket) => {
         const exigirJogador = () => {
@@ -40,6 +46,7 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
         // jeito, é só quem valida os dados que muda.
         const autenticarSocket = (player) => {
             jogadorPorSocket.set(socket.id, player);
+            socketPorJogador.set(player.id, socket.id);
             // Sala pessoal do jogador — endereçável por id de conta (estável),
             // não por socket.id (muda a cada reconexão). É pra cá que vai
             // qualquer informação privada (ex.: SUA_MAO).
@@ -68,7 +75,7 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
                 const sala = salaManager.criarSala(player, config);
                 socket.join(sala.salaId);
                 salaPorSocket.set(socket.id, sala.salaId);
-                ligarControllerASala(io, sala);
+                ligarControllerASala(io, sala, socketPorJogador, salaPorSocket);
                 notificarSala(io, sala);
                 // jogadores vai no próprio ack (não só no broadcast de
                 // listaJogadores): o broadcast sai daqui dentro do handler,
@@ -146,11 +153,21 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
             });
         });
 
+        socket.on(EventosCliente.MINHA_SALA_ATIVA, (_payload, ack) => {
+            responder(ack, () => {
+                const player = exigirJogador();
+                return { salaId: salaManager.salaAtivaDoJogador(player.id) };
+            });
+        });
+
         socket.on('disconnect', () => {
             const player = jogadorPorSocket.get(socket.id);
             const salaId = salaPorSocket.get(socket.id);
             jogadorPorSocket.delete(socket.id);
             salaPorSocket.delete(socket.id);
+            if (player && socketPorJogador.get(player.id) === socket.id) {
+                socketPorJogador.delete(player.id);
+            }
 
             // Best-effort: sem cliente do outro lado pra responder erro
             // nenhum. Se a sala já começou, se o jogador já tinha saído, ou
@@ -190,7 +207,7 @@ function notificarSala(io, sala) {
 // sala, então essa assinatura vale pro resto da vida dela (espera + partida
 // inteira). Todo evento é broadcast pra sala, exceto cartasDistribuidas, que
 // é privado por natureza (a mão de cada jogador só pode ir pra ele).
-function ligarControllerASala(io, sala) {
+function ligarControllerASala(io, sala, socketPorJogador, salaPorSocket) {
     const { salaId, controller } = sala;
 
     const retransmitir = (evento) => {
@@ -210,6 +227,21 @@ function ligarControllerASala(io, sala) {
     retransmitir(EventosServidor.JOGO_FINALIZADO);
     retransmitir(EventosServidor.JOGADA_AUTOMATICA);
     retransmitir(EventosServidor.JOGADOR_RECONECTOU);
+    retransmitir(EventosServidor.JOGADOR_EXPULSO_POR_INATIVIDADE);
+
+    // Além do broadcast acima (que avisa a sala toda, inclusive o próprio
+    // expulso — o cliente decide navegar pra tela de salas olhando o `id`),
+    // o socket dele precisa sair de verdade da room do socket.io, senão
+    // continuaria recebendo os eventos da partida numa tela que ele não está
+    // mais olhando. A vaga na partida (controller.jogadores) não muda —
+    // só a presença do socket na room — então "reconectar" continua
+    // funcionando normalmente depois.
+    controller.on(EventosServidor.JOGADOR_EXPULSO_POR_INATIVIDADE, ({ id }) => {
+        const socketId = socketPorJogador.get(id);
+        if (!socketId || salaPorSocket.get(socketId) !== salaId) return;
+        io.sockets.sockets.get(socketId)?.leave(salaId);
+        salaPorSocket.delete(socketId);
+    });
 
     controller.on('cartasDistribuidas', (maos) => {
         for (const { id, mao } of maos) {
