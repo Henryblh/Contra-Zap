@@ -19,7 +19,7 @@ function escolherCartaAutomatica(jogador) {
 }
 
 export class GameController extends EventEmitter {
-    constructor({ numberPlayers, roundStart, randomShuffle, tempoTurnoMs } = {}) {
+    constructor({ numberPlayers, roundStart, randomShuffle, tempoTurnoMs, limiteInatividadeMs } = {}) {
         super();
         this.numberPlayers = numberPlayers || 4;
         this.roundStart = roundStart || 3;
@@ -28,6 +28,11 @@ export class GameController extends EventEmitter {
         // (ver _aguardarJogadaOuTimeout). Campo público de propósito — dá
         // pra ajustar por sala (ex.: testes usam um valor bem menor).
         this.tempoTurnoMs = tempoTurnoMs ?? 15_000;
+        // Quanto tempo (real, não em turnos) sem nenhuma ação de verdade até
+        // o jogador ser expulso do socket da sala (ver _registrarTimeout /
+        // jogadorExpulsoPorInatividade) — a vaga na partida continua, só o
+        // socket sai. Campo público pelo mesmo motivo de tempoTurnoMs acima.
+        this.limiteInatividadeMs = limiteInatividadeMs ?? 90_000;
         this.jogadores = [];
         this.game = null;
         this.rodada = null;
@@ -116,6 +121,14 @@ export class GameController extends EventEmitter {
         });
         this.game.setstartsequence();
 
+        // O relógio de inatividade só passa a valer a partir daqui — tempo
+        // parado na sala de espera não deve contar contra ninguém.
+        const agora = Date.now();
+        for (const jogador of this.jogadores) {
+            jogador.ultimaAcaoEm = agora;
+            jogador.expulsoPorInatividade = false;
+        }
+
         this.numeroRodada = 1;
         this.rodada = this.game.newRodada();
         this.emit('novaRodadaIniciada', { numero: this.numeroRodada, cartas: this.rodada.round });
@@ -145,6 +158,31 @@ export class GameController extends EventEmitter {
         });
     }
 
+    // Chamado sempre que um jogador faz alguma ação real (jogar carta,
+    // apostar ou reconectar) — desliga a flag de "no automático" e reseta o
+    // relógio de inatividade usado por _registrarTimeout, pra turnos que já
+    // não são mais dele não contarem contra ele.
+    _registrarAtividade(jogador) {
+        jogador.desconectado = false;
+        jogador.expulsoPorInatividade = false;
+        jogador.ultimaAcaoEm = Date.now();
+    }
+
+    // Chamado por todo timeout de turno (aposta ou carta): liga desconectado
+    // (jogada automática já em curso) e, só na primeira vez que a
+    // inatividade real dele passar de limiteInatividadeMs, expulsa o socket
+    // da sala — ver jogadorExpulsoPorInatividade, tratado em
+    // conexao/socketServer.js. A vaga na partida não muda, só a presença do
+    // socket na room; o guard de expulsoPorInatividade evita reemitir isso a
+    // cada novo timeout enquanto ele continuar sumido.
+    _registrarTimeout(jogador) {
+        jogador.desconectado = true;
+        if (!jogador.expulsoPorInatividade && Date.now() - jogador.ultimaAcaoEm >= this.limiteInatividadeMs) {
+            jogador.expulsoPorInatividade = true;
+            this.emit('jogadorExpulsoPorInatividade', { id: jogador.id, jogador: jogador.nome });
+        }
+    }
+
     // Igual _aguardarJogada, mas com prazo: se tempoTurnoMs passar sem
     // jogarCarta() de verdade, joga por conta própria (placeholder de bot,
     // ver escolherCartaAutomatica) e liga jogador.desconectado — é o sinal
@@ -158,7 +196,7 @@ export class GameController extends EventEmitter {
 
         const timer = setTimeout(() => {
             if (this._jogadaEsperada?.jogadorId !== jogador.id) return;
-            jogador.desconectado = true;
+            this._registrarTimeout(jogador);
             const resolver = this._jogadaEsperada.resolver;
             this._jogadaEsperada = null;
             this.emit('jogadaAutomatica', { id: jogador.id, jogador: jogador.nome });
@@ -187,7 +225,7 @@ export class GameController extends EventEmitter {
             return { ok: false, motivo: 'CARTA_INVALIDA' };
         }
 
-        jogador.desconectado = false; // jogou de verdade — claramente está de volta
+        this._registrarAtividade(jogador); // jogou de verdade — claramente está de volta
         const resolver = this._jogadaEsperada.resolver;
         this._jogadaEsperada = null;
         resolver(indice);
@@ -248,7 +286,7 @@ export class GameController extends EventEmitter {
 
         const timer = setTimeout(() => {
             if (this._apostaEsperada?.jogadorId !== jogador.id) return;
-            jogador.desconectado = true;
+            this._registrarTimeout(jogador);
             const resolver = this._apostaEsperada.resolver;
             this._apostaEsperada = null;
             this._registrarAposta(jogador, this._apostaPadrao(jogador));
@@ -286,7 +324,7 @@ export class GameController extends EventEmitter {
             return { ok: false, motivo: 'APOSTA_FECHA_RODADA' };
         }
 
-        jogador.desconectado = false; // apostou de verdade — claramente está de volta
+        this._registrarAtividade(jogador); // apostou de verdade — claramente está de volta
         const resolver = this._apostaEsperada.resolver;
         this._apostaEsperada = null;
         this._registrarAposta(jogador, valor);
@@ -294,20 +332,28 @@ export class GameController extends EventEmitter {
         return { ok: true };
     }
 
-    // Estado mínimo pra alguém que estava fora reencaixar numa partida já
-    // em andamento: a própria mão atual e de quem é a vez agora. null se
-    // esse playerId não faz parte de uma partida em andamento aqui (sala
-    // ainda não começou, ou ele nunca esteve nela).
+    // Estado mínimo pra alguém que estava fora reencaixar numa partida já em
+    // andamento: a própria mão atual e de quem é a vez agora — tanto pra
+    // jogar carta quanto pra apostar, porque as duas esperas (_jogadaEsperada
+    // e _apostaEsperada) nunca coexistem (a rodada só chega na vaza depois
+    // que todo mundo já apostou), então no máximo uma das duas está de pé
+    // quando isto é chamado. null se esse playerId não faz parte de uma
+    // partida em andamento aqui (sala ainda não começou, ou ele nunca esteve
+    // nela).
     estadoDeReconexao(playerId) {
         if (!this.game) return null;
         const jogador = this.jogadores.find(j => j.id === playerId);
         if (!jogador) return null;
 
         const idDaVez = this._jogadaEsperada?.jogadorId ?? null;
+        const idDaVezAposta = this._apostaEsperada?.jogadorId ?? null;
         return {
             mao: jogador.mao.map(c => c.toString()),
+            cartasRodada: this.rodada.round,
             suaVez: idDaVez === playerId,
             jogadorDaVez: idDaVez ? this.jogadores.find(j => j.id === idDaVez)?.nome ?? null : null,
+            suaVezDaAposta: idDaVezAposta === playerId,
+            jogadorDaVezAposta: idDaVezAposta ? this.jogadores.find(j => j.id === idDaVezAposta)?.nome ?? null : null,
         };
     }
 
@@ -319,7 +365,7 @@ export class GameController extends EventEmitter {
         const jogador = this.jogadores.find(j => j.id === playerId);
         if (!jogador) return false;
 
-        jogador.desconectado = false;
+        this._registrarAtividade(jogador);
         this.emit('jogadorReconectou', { id: jogador.id, nome: jogador.nome });
         return true;
     }

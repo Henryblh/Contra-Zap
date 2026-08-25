@@ -200,20 +200,59 @@ acontecer bem na vez dele, o timeout acima cuida disso normalmente (jogada
 automática); se não for a vez dele, simplesmente não acontece nada até a
 vez chegar.
 
+**Expulsão por inatividade**: cada timeout de turno (aposta ou carta) também
+checa há quanto tempo (real, em ms — não em turnos) aquele jogador não faz
+nada de verdade. Se passar de `limiteInatividadeMs` (`GameController`, 90s
+por padrão, configurável por sala igual `tempoTurnoMs`) desde a última ação
+real dele (jogar carta, apostar ou `reconectar`), o servidor tira o *socket*
+dele da room daquela sala e avisa todo mundo com `jogadorExpulsoPorInatividade`
+— só isso, uma vez por período de inatividade (não reemite a cada novo
+timeout enquanto ele continuar sumido). O assento na partida **não muda**:
+`controller.jogadores` continua com ele lá, `jogadaAutomatica` continua
+jogando por ele a cada turno normalmente — só o socket parou de estar na
+room, então o cliente dele para de receber os eventos daquela partida e
+(olhando o `id` do evento) deve navegar pra tela de salas. Pra voltar, é só
+mandar `reconectar` de novo — o socket ainda está autenticado (não é uma
+desconexão de verdade), não precisa `entrar` outra vez. Hoje isso só
+desconecta: não existe bot nenhum jogando estrategicamente por ele nesse
+meio tempo (ver "o que fica fora deste marco" mais abaixo).
+
 ### `reconectar`
 Payload: `{ salaId: string }`
 Pré-condição: socket já mandou `entrar` (de novo — reconectar não dispensa
 logar de novo, o `socket.id` é outro); a sala precisa **já ter começado**
 (pra sala em espera, é só `entrarSala` mesmo) e quem manda precisa já fazer
 parte daquela partida (ter entrado na sala antes dela começar).
-Ack sucesso: `{ ok: true, salaId, mao: string[], suaVez: boolean,
-jogadorDaVez: string | null }` — a mão atual de quem reconectou e de quem é
-a vez agora, pra o cliente saber se já deve pedir a escolha de carta na
-hora. O socket dá `join` na sala de novo (broadcasts futuros voltam a
-chegar) e a flag `desconectado` desse jogador é desligada.
+Ack sucesso: `{ ok: true, salaId, mao: string[], cartasRodada: number,
+suaVez: boolean, jogadorDaVez: string | null, suaVezDaAposta: boolean,
+jogadorDaVezAposta: string | null }` — a mão atual de quem reconectou,
+quantas cartas tem a rodada (pro limite do input de aposta) e de quem é a
+vez agora, tanto pra jogar carta quanto pra apostar (as duas esperas nunca
+coexistem — no máximo um par faz sentido de cada vez, o outro fica
+`false`/`null`), pra o cliente já poder pedir a ação certa na hora, sem
+esperar um `turnoJogador`/`turnoAposta` que já passou antes dele voltar. O
+socket dá `join` na sala de novo (broadcasts futuros voltam a chegar) e a
+flag `desconectado` desse jogador é desligada.
 Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`,
 `SALA_NAO_INICIADA` (sala existe mas a partida não começou — use
 `entrarSala`), `NAO_ESTA_NA_SALA` (não faz parte dessa partida).
+
+### `minhaSalaAtiva`
+Payload: `{}`
+Pré-condição: socket já mandou `entrar`.
+Ack sucesso: `{ ok: true, salaId: string | null }` — o `salaId` de uma
+partida já em andamento em que quem pediu ainda tem assento, ou `null` se
+não tiver nenhuma. Existe pra um socket recém-autenticado (ex.: depois de um
+refresh de página — o cliente não guarda `salaId` nenhum entre recarregas,
+de propósito) conseguir descobrir sozinho que existe uma partida esperando
+por ele, sem precisar saber o `salaId` de antemão — é o mesmo `salaId` que
+`reconectar` espera. Salas ainda na sala de espera (não iniciadas) não
+contam aqui: lá "sumir" já tira o assento de verdade (ver `disconnect` em
+`jogarCarta` acima), não tem o que descobrir. Se o jogador tiver assento em
+mais de uma partida em andamento ao mesmo tempo (hoje possível — nada
+impede criar/entrar numa sala nova depois de sair de outra, ver "Sair da
+partida" no front), devolve só a primeira encontrada.
+Erros possíveis: `NAO_IDENTIFICADO`.
 
 ## Eventos servidor -> cliente
 
@@ -249,12 +288,13 @@ adicionado:
 | `jogoFinalizado` | `{ vencedor }` |
 | `jogadaAutomatica` | `{ id, jogador }` — `tempoTurnoMs` estourou, o servidor jogou sozinho por ele |
 | `jogadorReconectou` | `{ id, jogador }` — voltou via `reconectar`, flag `desconectado` desligada |
+| `jogadorExpulsoPorInatividade` | `{ id, jogador }` — `limiteInatividadeMs` sem nenhuma ação real dele; o socket dele já saiu da room dessa sala (assento continua, ver seção de `reconectar` acima) |
 
 ## Códigos de erro (`CodigosErro`)
 
 | Código | Quando |
 |---|---|
-| `NAO_IDENTIFICADO` | Mandou `criarSala`/`entrarSala`/`listarSalas`/`forcarInicio`/`sairSala`/`jogarCarta`/`reconectar` sem ter mandado `entrar` antes |
+| `NAO_IDENTIFICADO` | Mandou `criarSala`/`entrarSala`/`listarSalas`/`forcarInicio`/`sairSala`/`jogarCarta`/`reconectar`/`minhaSalaAtiva` sem ter mandado `entrar` antes |
 | `USUARIO_NAO_ENCONTRADO` | `entrar` com nome que não existe no banco |
 | `SENHA_INCORRETA` | `entrar` com nome existente, senha errada |
 | `CADASTRO_INVALIDO` | `cadastrar` com nome ou senha menor que 3 caracteres |
@@ -280,7 +320,9 @@ adicionado:
 - Bot de verdade. `escolherCartaAutomatica` (`game/GameController.js`) hoje
   só devolve a última carta da mão — dá pra validar o mecanismo de
   timeout/flag ponta a ponta, mas não é uma escolha estratégica nenhuma.
-  Trocar por algo que jogue com alguma lógica é trabalho futuro.
+  Trocar por algo que jogue com alguma lógica é trabalho futuro; hoje, depois
+  da expulsão por inatividade, é exatamente essa mesma jogada boba que
+  continua acontecendo a cada turno até alguém voltar via `reconectar`.
 - Reconectar durante a **sala de espera** (antes da partida começar) não
   existe como conceito separado — hoje uma desconexão nessa fase tira o
   jogador da sala (`sairSala`), então "reconectar" ali é só logar de novo e
@@ -289,12 +331,6 @@ adicionado:
 - Abandono/forfeit de partida em andamento (hoje só dá pra sair antes de
   começar, via `sairSala` — uma vez que a partida começa, o único jeito de
   "sair" é deixar o timeout jogar automático por você indefinidamente).
-- Reconectar durante a espera de uma aposta (`turnoAposta` pendente): o
-  `estadoDeReconexao` do `GameController` hoje só cobre a espera de
-  `jogarCarta` (`turnoJogador`); reconectar no meio de uma janela de aposta
-  não devolve `suaVez: true` pra ela — fica sem efeito prático enquanto o
-  timeout da aposta não estourar. Não é um caso comum ainda (é um recorte
-  novo), mas é um buraco conhecido.
 - Reconexão via `Main2.js`: o harness de CLI não guarda o token entre
   execuções nem oferece a opção "reconectar" no menu — pra testar o fluxo
   de reconexão hoje é preciso emitir o evento manualmente (ou usar os

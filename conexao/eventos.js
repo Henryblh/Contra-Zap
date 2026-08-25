@@ -21,6 +21,7 @@ export const EventosCliente = {
     APOSTAR: 'apostar',          // { salaId, valor } -> ack: { ok } — valor é o número de vazas que o jogador acha que vai fazer
     JOGAR_CARTA: 'jogarCarta',   // { salaId, indice } -> ack: { ok } — indice é 0-based, posição na mão
     RECONECTAR: 'reconectar',    // { salaId } -> ack: { ok, mao, suaVez, jogadorDaVez } — sala com partida já em andamento
+    MINHA_SALA_ATIVA: 'minhaSalaAtiva', // {} -> ack: { ok, salaId: string | null } — existe uma partida em andamento em que eu ainda tenho assento? pra descobrir sem saber o salaId de antemão (ex.: depois de um refresh de página)
 };
 
 // Eventos empurrados pelo servidor sem ter sido pedidos por um ack.
@@ -44,6 +45,7 @@ export const EventosServidor = {
     JOGO_FINALIZADO: 'jogoFinalizado',          // { salaId, vencedor }
     JOGADA_AUTOMATICA: 'jogadaAutomatica',      // { salaId, id, jogador } — tempoTurnoMs estourou, jogou sozinho
     JOGADOR_RECONECTOU: 'jogadorReconectou',    // { salaId, id, jogador }
+    JOGADOR_EXPULSO_POR_INATIVIDADE: 'jogadorExpulsoPorInatividade', // { salaId, id, jogador } — ficou limiteInatividadeMs sem agir; o socket dele já saiu da sala (assento continua, dá pra "reconectar")
 };
 
 export const CodigosErro = {
