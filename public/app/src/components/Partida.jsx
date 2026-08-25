@@ -6,10 +6,14 @@ import { socket, chamar } from '../socket.js';
 // do GameController, do início ao fim — ver conexao/PROTOCOLO.md pra tabela
 // completa de eventos e payloads.
 // `reconexao`, quando presente, vem do ack de "reconectar" (chamado pela
-// Lobby depois de sair de uma partida em andamento) — { mao, suaVez,
-// jogadorDaVez } — e é o que permite montar esta tela já em andamento, sem
-// esperar um novaRodadaIniciada/suaMao que já aconteceram antes da gente
-// voltar (a partida não pausa enquanto o assento está no automático).
+// Lobby depois de sair de uma partida em andamento) — { mao, cartasRodada,
+// suaVez, jogadorDaVez, suaVezDaAposta, jogadorDaVezAposta } — e é o que
+// permite montar esta tela já em andamento, sem esperar um
+// novaRodadaIniciada/suaMao/turnoAposta que já aconteceram antes da gente
+// voltar (a partida não pausa enquanto o assento está no automático). As
+// duas frentes (aposta e carta) nunca vêm preenchidas ao mesmo tempo — no
+// máximo uma delas reflete a espera de verdade, a outra some sozinha assim
+// que a fase seguinte começar de verdade.
 export default function Partida({ salaId, jogadoresIniciais, reconexao, meuNome, onSairDaSala, onSairDaPartida }) {
     // Semeado do ack de criarSala/entrarSala, não do broadcast de
     // listaJogadores — o primeiro broadcast sai antes desta tela existir
@@ -19,9 +23,9 @@ export default function Partida({ salaId, jogadoresIniciais, reconexao, meuNome,
     const [segundosParaIniciar, setSegundosParaIniciar] = useState(null);
     const [iniciada, setIniciada] = useState(!!reconexao);
     const [mao, setMao] = useState(reconexao?.mao ?? []);
-    const [jogadorDaVezAposta, setJogadorDaVezAposta] = useState(null);
+    const [jogadorDaVezAposta, setJogadorDaVezAposta] = useState(reconexao?.jogadorDaVezAposta ?? null);
     const [valorAposta, setValorAposta] = useState('');
-    const [cartasRodada, setCartasRodada] = useState(0);
+    const [cartasRodada, setCartasRodada] = useState(reconexao?.cartasRodada ?? 0);
     const [jogadorDaVez, setJogadorDaVez] = useState(reconexao?.jogadorDaVez ?? null);
     const [mesa, setMesa] = useState([]);
     const [vira, setVira] = useState(null);
@@ -35,7 +39,11 @@ export default function Partida({ salaId, jogadoresIniciais, reconexao, meuNome,
         const daSala = (payload) => payload.salaId === salaId;
 
         if (reconexao) {
-            registrar(`🔌 Reconectado — ${reconexao.suaVez ? 'sua vez agora' : `vez de ${reconexao.jogadorDaVez ?? '...'}`}`);
+            if (reconexao.jogadorDaVezAposta) {
+                registrar(`🔌 Reconectado — ${reconexao.suaVezDaAposta ? 'sua vez de apostar agora' : `vez de ${reconexao.jogadorDaVezAposta} apostar`}`);
+            } else {
+                registrar(`🔌 Reconectado — ${reconexao.suaVez ? 'sua vez agora' : `vez de ${reconexao.jogadorDaVez ?? '...'}`}`);
+            }
         }
 
         const handlers = {
