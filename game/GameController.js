@@ -34,6 +34,7 @@ export class GameController extends EventEmitter {
         this.numeroRodada = 0;
         this._timerInicio = null;
         this._jogadaEsperada = null;
+        this._apostaEsperada = null;
     }
 
     // Sala de espera: transforma o Player que entrou num PlayerGame e guarda
@@ -193,6 +194,106 @@ export class GameController extends EventEmitter {
         return { ok: true };
     }
 
+    // Fixa a aposta de um jogador e avisa a sala — chamado tanto por uma
+    // aposta real (apostar) quanto pelo timeout (valor default). Único lugar
+    // que escreve em jogador.aposta, pra sempre emitir apostaFeita junto.
+    _registrarAposta(jogador, valor) {
+        jogador.aposta = valor;
+        this.emit('apostaFeita', { jogador: jogador.nome, aposta: valor });
+    }
+
+    // Mesma ideia de _aguardarJogada, mas pra aposta: só resolve quando
+    // apostar(jogador.id, ...) for chamado com sucesso pra esse jogador.
+    _aguardarAposta(jogador) {
+        return new Promise((resolve) => {
+            this._apostaEsperada = { jogadorId: jogador.id, resolver: resolve };
+        });
+    }
+
+    // Soma das apostas já registradas pelos outros jogadores da rodada (o
+    // próprio `jogador` fica de fora da soma, apostado ou não). Só faz
+    // sentido chamar isso pelo último a apostar — pros demais, ainda tem
+    // gente sem apostar (valor default 0), então a soma não representaria
+    // "todo mundo menos eu".
+    _somaApostasDosOutros(jogador) {
+        return this.rodada.gameOrder.reduce((soma, j) => j === jogador ? soma : soma + j.aposta, 0);
+    }
+
+    // true só pro último jogador a apostar na rodada (ordem de
+    // rodada.gameOrder, a mesma em que _jogarRodadaAtual pede as apostas) —
+    // é o único cuja aposta fecha (ou não) a soma de todo mundo, porque
+    // todos os outros já apostaram quando chega a vez dele.
+    _ehUltimoAApostar(jogador) {
+        const ordem = this.rodada.gameOrder;
+        return ordem[ordem.length - 1] === jogador;
+    }
+
+    // Aposta usada quando o timeout estoura: 1, igual sempre foi. Só cai pra
+    // 0 se 1 violar a regra de fechamento (só pode acontecer com o último a
+    // apostar) — 0 sempre é uma alternativa válida nesse caso, porque só
+    // existe um valor proibido por vez (ver apostar()).
+    _apostaPadrao(jogador) {
+        if (this._ehUltimoAApostar(jogador) && this._somaApostasDosOutros(jogador) + 1 === this.rodada.round) {
+            return 0;
+        }
+        return 1;
+    }
+
+    // Igual _aguardarJogadaOuTimeout: emite turnoAposta e dá tempoTurnoMs
+    // pra uma aposta real chegar; estourou, registra a aposta padrão (ver
+    // _apostaPadrao) e liga desconectado.
+    async _aguardarApostaOuTimeout(jogador) {
+        const apostaFeita = this._aguardarAposta(jogador);
+        this.emit('turnoAposta', { id: jogador.id, jogador: jogador.nome });
+
+        const timer = setTimeout(() => {
+            if (this._apostaEsperada?.jogadorId !== jogador.id) return;
+            jogador.desconectado = true;
+            const resolver = this._apostaEsperada.resolver;
+            this._apostaEsperada = null;
+            this._registrarAposta(jogador, this._apostaPadrao(jogador));
+            resolver();
+        }, this.tempoTurnoMs);
+        timer.unref?.();
+
+        await apostaFeita;
+        clearTimeout(timer);
+    }
+
+    // Chamado de fora (via protocolo) quando um jogador manda a aposta dele.
+    // Mesmo formato de retorno de jogarCarta: { ok: true } se aceita, ou
+    // { ok: false, motivo } se não for a vez dele ou o valor for inválido.
+    // Dois limites: `valor` tem que estar entre 0 e o número de cartas da
+    // rodada (fora disso, não faz sentido apostar mais vazas do que existem
+    // cartas pra fazer); e o ÚLTIMO a apostar não pode escolher o valor que
+    // fecha a soma de todo mundo exatamente no número de cartas — isso
+    // garantiria que alguém acerta a aposta sem perder vida, o que não pode
+    // (é justamente por isso que a ordem de aposta precisa ser aleatória:
+    // ser o último é uma desvantagem real, então não pode ser sempre a
+    // mesma pessoa por ter entrado por último na sala).
+    apostar(playerId, valor) {
+        if (!this._apostaEsperada || this._apostaEsperada.jogadorId !== playerId) {
+            return { ok: false, motivo: 'NAO_E_SUA_VEZ' };
+        }
+
+        const numCartas = this.rodada.round;
+        if (!Number.isInteger(valor) || valor < 0 || valor > numCartas) {
+            return { ok: false, motivo: 'APOSTA_INVALIDA' };
+        }
+
+        const jogador = this.jogadores.find(j => j.id === playerId);
+        if (this._ehUltimoAApostar(jogador) && this._somaApostasDosOutros(jogador) + valor === numCartas) {
+            return { ok: false, motivo: 'APOSTA_FECHA_RODADA' };
+        }
+
+        jogador.desconectado = false; // apostou de verdade — claramente está de volta
+        const resolver = this._apostaEsperada.resolver;
+        this._apostaEsperada = null;
+        this._registrarAposta(jogador, valor);
+        resolver();
+        return { ok: true };
+    }
+
     // Estado mínimo pra alguém que estava fora reencaixar numa partida já
     // em andamento: a própria mão atual e de quem é a vez agora. null se
     // esse playerId não faz parte de uma partida em andamento aqui (sala
@@ -236,9 +337,11 @@ export class GameController extends EventEmitter {
         rodada.virarManilha();
         this.emit('manilhaVirada', { vira: rodada.vira.toString(), viraValor: rodada.viraValor });
 
+        // Ordem da rodada, um de cada vez — a resposta de quem aposta antes
+        // pode (e deve) influenciar quem vem depois, então não dá pra
+        // paralelizar isso: cada apostaFeita só sai depois da anterior.
         for (const jogador of rodada.gameOrder) {
-            jogador.aposta = 1;
-            this.emit('apostaFeita', { jogador: jogador.nome, aposta: jogador.aposta });
+            await this._aguardarApostaOuTimeout(jogador);
         }
 
         for (let v = 0; v < rodada.round; v++) {

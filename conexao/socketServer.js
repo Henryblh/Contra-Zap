@@ -120,6 +120,14 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
             });
         });
 
+        socket.on(EventosCliente.APOSTAR, ({ salaId, valor } = {}, ack) => {
+            responder(ack, () => {
+                const player = exigirJogador();
+                salaManager.apostar(salaId, player, valor);
+                return {};
+            });
+        });
+
         socket.on(EventosCliente.JOGAR_CARTA, ({ salaId, indice } = {}, ack) => {
             responder(ack, () => {
                 const player = exigirJogador();
@@ -192,6 +200,7 @@ function ligarControllerASala(io, sala) {
     retransmitir(EventosServidor.PARTIDA_INICIANDO_EM);
     retransmitir(EventosServidor.NOVA_RODADA_INICIADA);
     retransmitir(EventosServidor.MANILHA_VIRADA);
+    retransmitir(EventosServidor.TURNO_APOSTA);
     retransmitir(EventosServidor.APOSTA_FEITA);
     retransmitir(EventosServidor.TURNO_JOGADOR);
     retransmitir(EventosServidor.CARTA_JOGADA);

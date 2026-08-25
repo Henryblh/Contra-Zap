@@ -1,5 +1,7 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { chamar } from '../socket.js';
+
+const INTERVALO_ATUALIZACAO_MS = 10_000;
 
 // Tela 2: criar uma sala nova ou listar/entrar numa já aberta.
 export default function Lobby({ meuNome, onEntrouNaSala }) {
@@ -17,6 +19,12 @@ export default function Lobby({ meuNome, onEntrouNaSala }) {
             setErro(erroDaChamada.message);
         }
     }
+
+    useEffect(() => {
+        atualizarLista();
+        const intervalo = setInterval(atualizarLista, INTERVALO_ATUALIZACAO_MS);
+        return () => clearInterval(intervalo);
+    }, []);
 
     async function criarSala(evento) {
         evento.preventDefault();

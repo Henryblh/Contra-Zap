@@ -33,6 +33,14 @@ controller.on('apostaFeita', ({ jogador, aposta }) => {
     console.log(`jogador ${jogador}: Apostou ${aposta} rodada`);
 });
 
+controller.on('turnoAposta', ({ id, jogador }) => {
+    console.log(`jogador ${jogador}: Aposte quantas vazas acha que vai fazer`);
+
+    // Harness de console: sempre aposta 1, mesmo comportamento de antes de
+    // o GameController esperar aposta real.
+    controller.apostar(id, 1);
+});
+
 controller.on('turnoJogador', ({ id, jogador }) => {
     console.log(`jogador ${jogador}: Selecione uma carta`);
 

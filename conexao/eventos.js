@@ -18,6 +18,7 @@ export const EventosCliente = {
     LISTAR_SALAS: 'listarSalas', // {} -> ack: { ok, salas: [{ salaId, numberPlayers, jogadoresAtual }] }
     FORCAR_INICIO: 'forcarInicio', // { salaId } -> ack: { ok } — só o adm da sala, só com a sala cheia
     SAIR_SALA: 'sairSala',       // { salaId } -> ack: { ok } — só antes da partida começar
+    APOSTAR: 'apostar',          // { salaId, valor } -> ack: { ok } — valor é o número de vazas que o jogador acha que vai fazer
     JOGAR_CARTA: 'jogarCarta',   // { salaId, indice } -> ack: { ok } — indice é 0-based, posição na mão
     RECONECTAR: 'reconectar',    // { salaId } -> ack: { ok, mao, suaVez, jogadorDaVez } — sala com partida já em andamento
 };
@@ -33,7 +34,8 @@ export const EventosServidor = {
     NOVA_RODADA_INICIADA: 'novaRodadaIniciada', // { salaId, numero, cartas }
     SUA_MAO: 'suaMao',                          // { salaId, mao: string[] } — PRIVADO
     MANILHA_VIRADA: 'manilhaVirada',            // { salaId, vira, viraValor }
-    APOSTA_FEITA: 'apostaFeita',                // { salaId, jogador, aposta }
+    TURNO_APOSTA: 'turnoAposta',                // { salaId, id, jogador } — id de quem tem que apostar agora
+    APOSTA_FEITA: 'apostaFeita',                // { salaId, jogador, aposta } — só depois que a aposta foi de fato registrada (real ou timeout)
     TURNO_JOGADOR: 'turnoJogador',              // { salaId, id, jogador } — id de quem tem que jogar
     CARTA_JOGADA: 'cartaJogada',                // { salaId, jogador, carta, status }
     VAZA_FINALIZADA: 'vazaFinalizada',          // { salaId, vencedor, carta }
@@ -56,8 +58,10 @@ export const CodigosErro = {
     JA_ESTA_NA_SALA: 'JA_ESTA_NA_SALA',
     NAO_ESTA_NA_SALA: 'NAO_ESTA_NA_SALA',   // sairSala por quem não está (mais) nessa sala
     NAO_AUTORIZADO: 'NAO_AUTORIZADO',       // forcarInicio por quem não é o adm da sala
-    NAO_E_SUA_VEZ: 'NAO_E_SUA_VEZ',         // jogarCarta fora da sua vez
+    NAO_E_SUA_VEZ: 'NAO_E_SUA_VEZ',         // jogarCarta/apostar fora da sua vez
     CARTA_INVALIDA: 'CARTA_INVALIDA',       // jogarCarta com índice fora da mão
+    APOSTA_INVALIDA: 'APOSTA_INVALIDA',     // apostar com valor fora de [0, número de cartas da rodada]
+    APOSTA_FECHA_RODADA: 'APOSTA_FECHA_RODADA', // último a apostar não pode escolher o valor que fecha a soma das apostas no número de cartas
     USUARIO_NAO_ENCONTRADO: 'USUARIO_NAO_ENCONTRADO', // login: nome não existe no banco
     SENHA_INCORRETA: 'SENHA_INCORRETA',               // login: nome existe, senha não bate
     CADASTRO_INVALIDO: 'CADASTRO_INVALIDO',           // cadastrar: nome/senha fora do tamanho mínimo aceito

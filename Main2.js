@@ -96,6 +96,22 @@ async function menuSala(socket) {
     }
 }
 
+// Pergunta quantas vazas o jogador acha que vai fazer, manda apostar e tenta
+// de novo se o servidor recusar (fora da vez, valor inválido).
+async function escolherAposta(socket, salaId) {
+    while (true) {
+        const escolha = await pergunta('Quantas vazas você acha que vai fazer? ');
+        const valor = Number(escolha);
+
+        try {
+            await chamar(socket, 'apostar', { salaId, valor });
+            return;
+        } catch (erro) {
+            console.log(`Não deu: ${erro.message}`);
+        }
+    }
+}
+
 // Pergunta qual carta jogar (1, 2, 3...), manda jogarCarta e tenta de novo
 // se o servidor recusar (fora da vez, índice inválido) — a validação de
 // verdade é toda do servidor, aqui é só UI.
@@ -145,6 +161,16 @@ socket.on('suaMao', ({ mao }) => {
 });
 socket.on('manilhaVirada', ({ vira, viraValor }) => {
     console.log(`Vira: ${vira} | Manilha: ${viraValor}`);
+});
+socket.on('turnoAposta', ({ jogador }) => {
+    if (jogador !== meuNome) {
+        console.log(`Vez de ${jogador} apostar`);
+        return;
+    }
+    escolherAposta(socket, salaId);
+});
+socket.on('apostaFeita', ({ jogador, aposta }) => {
+    console.log(`${jogador} apostou ${aposta}`);
 });
 socket.on('turnoJogador', ({ jogador }) => {
     if (jogador !== meuNome) {

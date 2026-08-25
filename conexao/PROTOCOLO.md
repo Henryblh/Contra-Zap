@@ -50,6 +50,8 @@ jogador.
    `partidaIniciandoEm`. O adm (quem criou a sala) pode pular a espera
    mandando `forcarInicio`. Depois disso a partida emite os eventos de jogo
    (`novaRodadaIniciada`, `suaMao`, `manilhaVirada`, ...) e **pausa** em cada
+   `turnoAposta` (um jogador por vez, na ordem da rodada — a resposta de um
+   pode influenciar o próximo) esperando `apostar`, e depois em cada
    `turnoJogador`, esperando o jogador daquela vez mandar `jogarCarta` — só
    aí segue pra próxima jogada, até `jogoFinalizado`.
 
@@ -126,6 +128,45 @@ cheia, o agendamento é cancelado.
 Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`, `SALA_JA_INICIADA`,
 `NAO_ESTA_NA_SALA`.
 
+### `apostar`
+Payload: `{ salaId: string, valor: number }` — `valor` é o número de vazas
+que o jogador acha que vai fazer nessa rodada.
+Pré-condição: socket já mandou `entrar`; a partida da sala precisa já ter
+começado; e **precisa ser a vez de quem manda apostar** — o servidor decide
+isso sozinho a partir de quem recebeu o `turnoAposta` mais recente, mesma
+lógica de `jogarCarta` pro turno de jogar carta. As apostas são pedidas uma
+de cada vez, na ordem da rodada (primeiro jogador, depois o segundo, e assim
+por diante) — a resposta de quem apostou antes pode influenciar a de quem
+vem depois, então o servidor não pede a próxima aposta antes da anterior
+chegar.
+Ack sucesso: `{ ok: true }`. Libera a espera do servidor e o `apostaFeita`
+sai pra sala inteira; segue pro próximo `turnoAposta` ou, se era o último,
+pro início da primeira vaza.
+Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`, `SALA_NAO_INICIADA`,
+`NAO_E_SUA_VEZ`, `APOSTA_INVALIDA` (`valor` não é um inteiro entre 0 e o
+número de cartas da rodada), `APOSTA_FECHA_RODADA` (só pode acontecer com o
+**último** jogador a apostar na rodada — ver limite abaixo).
+
+**Limites de aposta**:
+- `valor` tem que ser um inteiro entre `0` e o número de cartas da rodada
+  (o mesmo `cartas` que veio em `novaRodadaIniciada`) — não faz sentido
+  apostar mais vazas do que existem cartas pra fazer.
+- A soma das apostas de todo mundo não pode fechar exatamente no número de
+  cartas da rodada — isso garantiria que pelo menos alguém acerta sem
+  arriscar nada. Só o **último** jogador a apostar na rodada esbarra nisso
+  na prática (os outros ainda não sabem a soma final); se o valor que ele
+  mandou fecharia a soma, o servidor recusa com `APOSTA_FECHA_RODADA` e ele
+  precisa escolher outro. É por isso que a ordem de aposta (`Game.setstartsequence`)
+  precisa ser sorteada de verdade a cada partida: ser o último a apostar é
+  uma desvantagem real (perde a liberdade de escolher qualquer valor), então
+  não pode ser sempre a mesma pessoa só por ter entrado por último na sala.
+
+**Timeout da aposta**: mesmo prazo de `jogarCarta` (`tempoTurnoMs`). Se
+estourar, o servidor aposta por aquele jogador sozinho — 1, a não ser que
+isso viole o limite acima (só possível se ele for o último a apostar), caso
+em que aposta 0 — liga a flag `desconectado`, sem emitir um evento à parte,
+só o `apostaFeita` normal com o valor escolhido.
+
 ### `jogarCarta`
 Payload: `{ salaId: string, indice: number }` — `indice` é a posição da
 carta na mão de quem manda (0-based; a mão vem em `suaMao`).
@@ -198,7 +239,8 @@ adicionado:
 | `novaRodadaIniciada` | `{ numero, cartas }` |
 | `suaMao` **(privado)** | `{ mao: string[] }` — só a mão de quem recebe |
 | `manilhaVirada` | `{ vira, viraValor }` |
-| `apostaFeita` | `{ jogador, aposta }` |
+| `turnoAposta` | `{ id, jogador }` — `id` é de quem tem que mandar `apostar` agora |
+| `apostaFeita` | `{ jogador, aposta }` — só depois que a aposta foi de fato registrada (real ou timeout) |
 | `turnoJogador` | `{ id, jogador }` — `id` é de quem tem que mandar `jogarCarta` |
 | `cartaJogada` | `{ jogador, carta, status }` |
 | `vazaFinalizada` | `{ vencedor, carta }` |
@@ -227,8 +269,10 @@ adicionado:
 | `JA_ESTA_NA_SALA` | `entrarSala` com o mesmo jogador (mesmo id de sessão) já presente |
 | `NAO_ESTA_NA_SALA` | `sairSala` por quem não está (mais) naquela sala; `reconectar` por quem não faz parte da partida |
 | `NAO_AUTORIZADO` | `forcarInicio` por quem não é o adm da sala |
-| `NAO_E_SUA_VEZ` | `jogarCarta` fora da sua vez |
+| `NAO_E_SUA_VEZ` | `jogarCarta`/`apostar` fora da sua vez |
 | `CARTA_INVALIDA` | `jogarCarta` com `indice` que não existe na mão de quem mandou |
+| `APOSTA_INVALIDA` | `apostar` com `valor` fora de `[0, número de cartas da rodada]` |
+| `APOSTA_FECHA_RODADA` | `apostar` pelo último da rodada com `valor` que fecharia a soma de todo mundo no número de cartas |
 | `ERRO_INTERNO` | Exceção inesperada no servidor — não deveria acontecer; se aparecer, é bug |
 
 ## O que fica fora deste marco (decisão adiada, não esquecida)
@@ -245,8 +289,12 @@ adicionado:
 - Abandono/forfeit de partida em andamento (hoje só dá pra sair antes de
   começar, via `sairSala` — uma vez que a partida começa, o único jeito de
   "sair" é deixar o timeout jogar automático por você indefinidamente).
-- Apostas reais (hoje toda aposta é fixa em 1 — `jogador.aposta = 1` sem
-  perguntar nada; só a escolha da carta virou interativa nesse marco).
+- Reconectar durante a espera de uma aposta (`turnoAposta` pendente): o
+  `estadoDeReconexao` do `GameController` hoje só cobre a espera de
+  `jogarCarta` (`turnoJogador`); reconectar no meio de uma janela de aposta
+  não devolve `suaVez: true` pra ela — fica sem efeito prático enquanto o
+  timeout da aposta não estourar. Não é um caso comum ainda (é um recorte
+  novo), mas é um buraco conhecido.
 - Reconexão via `Main2.js`: o harness de CLI não guarda o token entre
   execuções nem oferece a opção "reconectar" no menu — pra testar o fluxo
   de reconexão hoje é preciso emitir o evento manualmente (ou usar os
