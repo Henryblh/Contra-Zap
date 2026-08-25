@@ -34,6 +34,7 @@ export class GameController extends EventEmitter {
         this.numeroRodada = 0;
         this._timerInicio = null;
         this._jogadaEsperada = null;
+        this._apostaEsperada = null;
     }
 
     // Sala de espera: transforma o Player que entrou num PlayerGame e guarda
@@ -193,6 +194,65 @@ export class GameController extends EventEmitter {
         return { ok: true };
     }
 
+    // Fixa a aposta de um jogador e avisa a sala — chamado tanto por uma
+    // aposta real (apostar) quanto pelo timeout (valor default). Único lugar
+    // que escreve em jogador.aposta, pra sempre emitir apostaFeita junto.
+    _registrarAposta(jogador, valor) {
+        jogador.aposta = valor;
+        this.emit('apostaFeita', { jogador: jogador.nome, aposta: valor });
+    }
+
+    // Mesma ideia de _aguardarJogada, mas pra aposta: só resolve quando
+    // apostar(jogador.id, ...) for chamado com sucesso pra esse jogador.
+    _aguardarAposta(jogador) {
+        return new Promise((resolve) => {
+            this._apostaEsperada = { jogadorId: jogador.id, resolver: resolve };
+        });
+    }
+
+    // Igual _aguardarJogadaOuTimeout: emite turnoAposta e dá tempoTurnoMs
+    // pra uma aposta real chegar; estourou, registra aposta 1 (mesmo default
+    // de antes desse marco) e liga desconectado.
+    async _aguardarApostaOuTimeout(jogador) {
+        const apostaFeita = this._aguardarAposta(jogador);
+        this.emit('turnoAposta', { id: jogador.id, jogador: jogador.nome });
+
+        const timer = setTimeout(() => {
+            if (this._apostaEsperada?.jogadorId !== jogador.id) return;
+            jogador.desconectado = true;
+            const resolver = this._apostaEsperada.resolver;
+            this._apostaEsperada = null;
+            this._registrarAposta(jogador, 1);
+            resolver();
+        }, this.tempoTurnoMs);
+        timer.unref?.();
+
+        await apostaFeita;
+        clearTimeout(timer);
+    }
+
+    // Chamado de fora (via protocolo) quando um jogador manda a aposta dele.
+    // Mesmo formato de retorno de jogarCarta: { ok: true } se aceita, ou
+    // { ok: false, motivo } se não for a vez dele ou o valor for inválido —
+    // limites de aposta (ex.: não pode fechar a rodada) ainda não existem,
+    // só a validação básica de "é um número inteiro não-negativo".
+    apostar(playerId, valor) {
+        if (!this._apostaEsperada || this._apostaEsperada.jogadorId !== playerId) {
+            return { ok: false, motivo: 'NAO_E_SUA_VEZ' };
+        }
+        if (!Number.isInteger(valor) || valor < 0) {
+            return { ok: false, motivo: 'APOSTA_INVALIDA' };
+        }
+
+        const jogador = this.jogadores.find(j => j.id === playerId);
+        jogador.desconectado = false; // apostou de verdade — claramente está de volta
+        const resolver = this._apostaEsperada.resolver;
+        this._apostaEsperada = null;
+        this._registrarAposta(jogador, valor);
+        resolver();
+        return { ok: true };
+    }
+
     // Estado mínimo pra alguém que estava fora reencaixar numa partida já
     // em andamento: a própria mão atual e de quem é a vez agora. null se
     // esse playerId não faz parte de uma partida em andamento aqui (sala
@@ -236,9 +296,11 @@ export class GameController extends EventEmitter {
         rodada.virarManilha();
         this.emit('manilhaVirada', { vira: rodada.vira.toString(), viraValor: rodada.viraValor });
 
+        // Ordem da rodada, um de cada vez — a resposta de quem aposta antes
+        // pode (e deve) influenciar quem vem depois, então não dá pra
+        // paralelizar isso: cada apostaFeita só sai depois da anterior.
         for (const jogador of rodada.gameOrder) {
-            jogador.aposta = 1;
-            this.emit('apostaFeita', { jogador: jogador.nome, aposta: jogador.aposta });
+            await this._aguardarApostaOuTimeout(jogador);
         }
 
         for (let v = 0; v < rodada.round; v++) {

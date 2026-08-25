@@ -151,6 +151,31 @@ export class SalaManager {
         return sala;
     }
 
+    // Registra a aposta de um jogador — só vale numa sala com partida em
+    // andamento. Mesma tradução de erro que jogarCarta: NAO_E_SUA_VEZ se não
+    // for a vez dele de apostar, APOSTA_INVALIDA se o valor não for um
+    // inteiro não-negativo (limites de verdade — ex.: não fechar a rodada —
+    // ainda não existem).
+    apostar(salaId, player, valor) {
+        const sala = this.salas.get(salaId);
+        if (!sala) {
+            throw new ErroSala(CodigosErro.SALA_NAO_ENCONTRADA, `Sala "${salaId}" não existe.`);
+        }
+        if (!sala.iniciada) {
+            throw new ErroSala(CodigosErro.SALA_NAO_INICIADA, 'A partida desta sala ainda não começou.');
+        }
+
+        const resultado = sala.controller.apostar(player.id, valor);
+        if (!resultado.ok) {
+            if (resultado.motivo === 'NAO_E_SUA_VEZ') {
+                throw new ErroSala(CodigosErro.NAO_E_SUA_VEZ, 'Não é a sua vez de apostar.');
+            }
+            throw new ErroSala(CodigosErro.APOSTA_INVALIDA, 'Valor de aposta inválido.');
+        }
+
+        return sala;
+    }
+
     // Reencaixa um jogador numa partida já em andamento depois de uma
     // desconexão — diferente de entrarSala, que é só pra sala de espera.
     // Reaproveita os mesmos códigos de erro de sala inexistente/não
