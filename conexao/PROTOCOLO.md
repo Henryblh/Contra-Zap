@@ -83,8 +83,9 @@ assento de quem criou) — fora disso, `CONFIGURACAO_INVALIDA`.
 assim que a sala nasce, na ordem de entrada normal — se isso já lotar a
 sala, a partida é agendada na hora, igual qualquer `entrarSala` que lote.
 Bots não têm socket: não aparecem em `jogadorPorSocket`, nunca desconectam
-nem reconectam, e cada turno deles é decidido e jogado na hora por
-`bots/BotBrain.js`, sem esperar `tempoTurnoMs` (ver `PlayerGame.bot`).
+nem reconectam, e cada turno deles é decidido por `bots/BotBrain.js` e
+jogado depois de uma pausa de `atrasoBotMs` (1s por padrão), sem esperar
+`tempoTurnoMs` (ver `PlayerGame.bot`).
 Pré-condição: socket já mandou `entrar` com sucesso.
 Ack sucesso: `{ ok: true, salaId, numberPlayers, jogadores: [{ nome }] }`. O
 socket já dá `join` na sala; `jogadores` vem no próprio ack (só 1: o dono,
@@ -191,12 +192,23 @@ Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`, `SALA_NAO_INICIADA`
 `GameController`, 15s por padrão) pra `jogarCarta` chegar. Se estourar, o
 servidor joga sozinho por aquele jogador — mesma decisão simples usada pros
 bots de verdade (hoje sempre a última carta da mão; ver `bots/BotBrain.js`
-— trocar por uma escolha melhor, ou treinar com ML, é trabalho futuro, e
-vale tanto pra bot quanto pra timeout porque os dois passam pelo mesmo
-lugar) — liga a flag `desconectado` nele e emite `jogadaAutomatica` pra
-sala. A flag só desliga quando ele manda `jogarCarta` de novo com sucesso,
-ou reconecta (ver
-`reconectar` abaixo).
+— trocar por uma escolha melhor, ou treinar com ML, é trabalho futuro) —
+liga a flag `desconectado` nele e emite `jogadaAutomatica` pra sala. Uma
+falta isolada é só isso: o próximo turno dele continua esperando
+`tempoTurnoMs` normalmente, do zero — pode ter sido só uma demora.
+`limiteInatividadeMs`/`jogadorExpulsoPorInatividade` (ver abaixo) não
+mudaram: continuam avaliados a cada timeout, exatamente como antes de
+existir bot. Só quando isso realmente acumula o suficiente pra estourar
+`limiteInatividadeMs` (várias faltas seguidas, não uma só) é que ele é
+considerado desconectado de verdade — expulsa o socket da sala **e** liga a
+flag `bot` (`PlayerGame.bot`): a partir daí esse assento para de esperar
+`tempoTurnoMs` e joga na hora, com uma pausa de `atrasoBotMs` (1s por
+padrão, mesma pausa de um bot de verdade — ver `GameController`) só pra não
+resolver a vaza inteira instantaneamente. As flags só desligam quando ele
+manda `jogarCarta`/`apostar` de novo com sucesso, ou reconecta (ver
+`reconectar` abaixo) — a partir daí volta a esperar `tempoTurnoMs` como
+qualquer jogador de verdade, com a reconexão funcionando exatamente igual a
+antes (mesmo `estadoDeReconexao`, mesma mão, mesmo "de quem é a vez").
 
 Uma desconexão "do nada" (aba fechada, rede caiu) **antes** da partida
 começar tem exatamente o mesmo efeito de mandar `sairSala` — o servidor

@@ -12,7 +12,7 @@ import { PlayerGame } from './PlayerGame.js';
 import { escolherCarta, escolherAposta } from '../bots/BotBrain.js';
 
 export class GameController extends EventEmitter {
-    constructor({ numberPlayers, roundStart, randomShuffle, tempoTurnoMs, limiteInatividadeMs } = {}) {
+    constructor({ numberPlayers, roundStart, randomShuffle, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs } = {}) {
         super();
         this.numberPlayers = numberPlayers || 4;
         this.roundStart = roundStart || 3;
@@ -26,6 +26,11 @@ export class GameController extends EventEmitter {
         // jogadorExpulsoPorInatividade) — a vaga na partida continua, só o
         // socket sai. Campo público pelo mesmo motivo de tempoTurnoMs acima.
         this.limiteInatividadeMs = limiteInatividadeMs ?? 90_000;
+        // Pausa artificial antes de qualquer jogada/aposta decidida por
+        // bots/BotBrain.js (bot de verdade ou assento tomado por timeout,
+        // ver PlayerGame.bot) — sem isso a mesa inteira de bots resolve uma
+        // vaza inteira no mesmo tick, rápido demais pra acompanhar na UI.
+        this.atrasoBotMs = atrasoBotMs ?? 1_000;
         this.jogadores = [];
         this.game = null;
         this.rodada = null;
@@ -152,28 +157,48 @@ export class GameController extends EventEmitter {
     }
 
     // Chamado sempre que um jogador faz alguma ação real (jogar carta,
-    // apostar ou reconectar) — desliga a flag de "no automático" e reseta o
-    // relógio de inatividade usado por _registrarTimeout, pra turnos que já
-    // não são mais dele não contarem contra ele.
+    // apostar ou reconectar) — desliga a flag de "no automático" (inclusive
+    // `bot`, que só um jogador de verdade pode ter ligado; um Bot de
+    // bots/Bot.js nunca passa por aqui) e reseta o relógio de inatividade
+    // usado por _registrarTimeout, pra turnos que já não são mais dele não
+    // contarem contra ele.
     _registrarAtividade(jogador) {
         jogador.desconectado = false;
+        jogador.bot = false;
         jogador.expulsoPorInatividade = false;
         jogador.ultimaAcaoEm = Date.now();
     }
 
     // Chamado por todo timeout de turno (aposta ou carta): liga desconectado
-    // (jogada automática já em curso) e, só na primeira vez que a
-    // inatividade real dele passar de limiteInatividadeMs, expulsa o socket
-    // da sala — ver jogadorExpulsoPorInatividade, tratado em
-    // conexao/socketServer.js. A vaga na partida não muda, só a presença do
-    // socket na room; o guard de expulsoPorInatividade evita reemitir isso a
-    // cada novo timeout enquanto ele continuar sumido.
+    // — só essa falta específica é decidida por bots/BotBrain.js, os turnos
+    // seguintes continuam esperando tempoTurnoMs normalmente (pode ter sido
+    // só uma demora, sem querer). Só quando a inatividade real dele passa de
+    // limiteInatividadeMs (várias faltas seguidas, não uma só) é que ele é
+    // considerado desconectado de verdade: expulsa o socket da sala — ver
+    // jogadorExpulsoPorInatividade, tratado em conexao/socketServer.js — E
+    // liga `bot`, que é o que faz esse assento parar de esperar e passar a
+    // jogar na hora a partir daí (ver _aguardarJogadaOuTimeout/
+    // _aguardarApostaOuTimeout), até ele reconectar ou jogar de verdade
+    // (_registrarAtividade desliga as duas flags de novo). A vaga na partida
+    // não muda, só a presença do socket na room; o guard de
+    // expulsoPorInatividade evita reemitir isso a cada novo timeout enquanto
+    // ele continuar sumido.
     _registrarTimeout(jogador) {
         jogador.desconectado = true;
         if (!jogador.expulsoPorInatividade && Date.now() - jogador.ultimaAcaoEm >= this.limiteInatividadeMs) {
             jogador.expulsoPorInatividade = true;
+            jogador.bot = true;
             this.emit('jogadorExpulsoPorInatividade', { id: jogador.id, jogador: jogador.nome });
         }
+    }
+
+    // Pausa artificial (atrasoBotMs) antes de uma decisão de bots/BotBrain.js
+    // — ver o comentário no construtor.
+    _atrasoBot() {
+        return new Promise((resolve) => {
+            const timer = setTimeout(resolve, this.atrasoBotMs);
+            timer.unref?.();
+        });
     }
 
     // Igual _aguardarJogada, mas com prazo: se tempoTurnoMs passar sem
@@ -186,11 +211,20 @@ export class GameController extends EventEmitter {
     //
     // Um Bot de verdade (jogador.bot, ver bots/Bot.js) nunca tem um socket
     // do outro lado esperando — não faz sentido segurar tempoTurnoMs pra só
-    // então jogar por ele, então decide e devolve na hora, sem passar pela
-    // espera/timeout que só existe pra dar chance de uma jogada real chegar.
+    // então jogar por ele, então decide e devolve na hora (com atrasoBotMs
+    // de pausa, só pra não passar a vaza inteira num único tick), sem
+    // passar pela espera/timeout que só existe pra dar chance de uma jogada
+    // real chegar. Um jogador real só cai nesse mesmo atalho depois de ser
+    // expulso por inatividade de verdade (várias faltas seguidas passando
+    // de limiteInatividadeMs — ver _registrarTimeout), não já na primeira
+    // vez que tempoTurnoMs estoura: uma falta isolada é só mais uma jogada
+    // decidida automaticamente lá embaixo, sem ligar `bot` — o próximo
+    // turno dele continua esperando normalmente.
     async _aguardarJogadaOuTimeout(jogador) {
         if (jogador.bot) {
             this.emit('turnoJogador', { id: jogador.id, jogador: jogador.nome });
+            if (jogador.desconectado) this.emit('jogadaAutomatica', { id: jogador.id, jogador: jogador.nome });
+            await this._atrasoBot();
             return escolherCarta(jogador);
         }
 
@@ -282,11 +316,13 @@ export class GameController extends EventEmitter {
 
     // Igual _aguardarJogadaOuTimeout: emite turnoAposta e dá tempoTurnoMs
     // pra uma aposta real chegar; estourou, registra a aposta automática
-    // (ver _decidirApostaAutomatica) e liga desconectado. Bot de verdade
-    // também não espera nada, pelo mesmo motivo de _aguardarJogadaOuTimeout.
+    // (ver _decidirApostaAutomatica) e liga desconectado — só depois de
+    // expulso por inatividade de verdade é que `bot` liga e esse assento
+    // passa a apostar na hora, pelo mesmo motivo de _aguardarJogadaOuTimeout.
     async _aguardarApostaOuTimeout(jogador) {
         if (jogador.bot) {
             this.emit('turnoAposta', { id: jogador.id, jogador: jogador.nome });
+            await this._atrasoBot();
             this._registrarAposta(jogador, this._decidirApostaAutomatica(jogador));
             return;
         }

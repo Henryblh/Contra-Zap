@@ -109,8 +109,13 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
   automático quando lota (ou forçado pelo dono).
 - ✅ Partida real via socket.io: jogadas, mão privada por jogador, vazas,
   placar, tudo em tempo real.
-- ✅ Timeout de turno com jogada automática (placeholder simples) +
-  reconexão de quem caiu no meio da partida.
+- ✅ Timeout de turno com jogada automática (placeholder simples) + jogador
+  expulso por inatividade de verdade (várias faltas seguidas, não uma só) +
+  reconexão de quem caiu no meio da partida, exatamente do mesmo jeito.
+- ✅ Estrutura de bots pronta (pasta `bots/`, `botNumber` na criação de sala,
+  campo pra escolher no lobby): um bot entra igual um jogador, sem socket, e
+  assume o assento de um jogador de verdade quando ele é expulso por
+  inatividade. Falta só a inteligência de verdade (ver "o que falta fazer").
 - ✅ Interface web em React funcionando ponta a ponta (login, lobby, partida).
 
 ## Ferramentas de debug (linha de comando)
@@ -125,9 +130,37 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
 
 ## O que falta fazer
 
-- Bots de verdade (hoje o timeout de turno só repete a última carta da mão,
-  não joga de forma inteligente).
+- **Lógica de verdade dos bots** (`bots/BotBrain.js`) — hoje é só um
+  placeholder burro (sempre a última carta, sempre aposta 1). A estrutura já
+  tá pronta pra trocar isso sem mexer em mais nada; o plano é evoluir pra uma
+  estratégia melhor e, mais pra frente, treinar com ML.
+- **Botão de "jogar de novo" quando alguém vencer** — hoje `jogoFinalizado`
+  é o fim da linha: não existe fluxo pra recomeçar a mesma sala nem pra
+  descartá-la. Precisa de: um evento de protocolo novo (algo como
+  `jogarNovamente`, só o adm ou todo mundo?), decidir se reaproveita a
+  sala/jogadores ou cria uma nova, e o botão em `Partida.jsx` pra disparar
+  isso.
+- **Limpar sala depois que a partida termina** — hoje uma `Sala` finalizada
+  fica pra sempre no `Map` do `SalaManager` (só some da listagem, não da
+  memória). Combinar isso com o item acima: sala vira descartável quando
+  não tiver mais ninguém nela depois do fim de jogo, ou depois de um tempo
+  sem ninguém pedir revanche.
 - Subir o servidor num ambiente de verdade, com sockets web funcionando fora
   da rede local (hoje só foi testado em `localhost`).
 - Debugging geral: testar cenários de borda em produção/rede real antes de
   considerar estável.
+
+### Sugestões pra deixar o motor redondo antes de investir no front
+
+- `Player.rate` existe desde sempre (banco, classe, getter/setter) mas nunca
+  é lido nem atualizado em lugar nenhum — se a ideia é ter algum tipo de
+  ranking/pontuação entre partidas, esse é o momento de decidir a fórmula e
+  ligar isso ao fim de `jogoFinalizado`, antes de esquecer que o campo existe.
+- Uma sala em que todo mundo (ou todo mundo que sobrou) virou bot por
+  inatividade não tem como terminar sozinha nem ser limpa — ela só segue
+  jogando bot contra bot pra sempre. Vale um limite (ex.: ninguém real ativo
+  há X minutos → encerra a partida) além da limpeza de sala já citada acima.
+- Com bots preenchendo assento, dá pra criar uma sala 100% automática
+  (`numberPlayers: 2, botNumber: 1` com só você) — bom caso de teste pra
+  validar o motor inteiro sem precisar de mais gente, vale ter isso em mente
+  ao testar.

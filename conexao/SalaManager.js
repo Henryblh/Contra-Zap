@@ -58,7 +58,7 @@ class Sala {
 }
 
 export class SalaManager {
-    constructor({ tempoEsperaInicioMs = TEMPO_ESPERA_INICIO_MS_PADRAO, tempoTurnoMs, limiteInatividadeMs } = {}) {
+    constructor({ tempoEsperaInicioMs = TEMPO_ESPERA_INICIO_MS_PADRAO, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs } = {}) {
         this.salas = new Map();
         this.tempoEsperaInicioMs = tempoEsperaInicioMs;
         // undefined = deixa o GameController usar o próprio default (15s).
@@ -68,6 +68,9 @@ export class SalaManager {
         // undefined = deixa o GameController usar o próprio default (90s).
         // Mesmo motivo do tempoTurnoMs acima.
         this.limiteInatividadeMs = limiteInatividadeMs;
+        // undefined = deixa o GameController usar o próprio default (1s).
+        // Mesmo motivo do tempoTurnoMs acima.
+        this.atrasoBotMs = atrasoBotMs;
     }
 
     // Cria uma sala nova e já coloca o jogador que criou dentro dela. Quem
@@ -91,6 +94,7 @@ export class SalaManager {
             randomShuffle: config.randomShuffle ?? true,
             tempoTurnoMs: this.tempoTurnoMs,
             limiteInatividadeMs: this.limiteInatividadeMs,
+            atrasoBotMs: this.atrasoBotMs,
         });
 
         this.salas.set(salaId, sala);
