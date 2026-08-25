@@ -139,6 +139,26 @@ button.secundario {
     font-size: 13px;
 }
 
+.status-jogadores {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 16px;
+}
+
+.status-jogador {
+    border: 1px solid var(--borda);
+    border-radius: 999px;
+    padding: 6px 12px;
+    background: #1f2028;
+    font-size: 13px;
+}
+
+.status-jogador-morto {
+    border-color: var(--erro);
+    color: var(--erro);
+}
+
 .log {
     background: #0f1015;
     border: 1px solid var(--borda);

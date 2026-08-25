@@ -20,7 +20,7 @@ export class GameController extends EventEmitter {
         // Quanto tempo esperar a jogada real antes de cair pro automático
         // (ver _aguardarJogadaOuTimeout). Campo público de propósito — dá
         // pra ajustar por sala (ex.: testes usam um valor bem menor).
-        this.tempoTurnoMs = tempoTurnoMs ?? 15_000;
+        this.tempoTurnoMs = tempoTurnoMs ?? 20_000;
         // Quanto tempo (real, não em turnos) sem nenhuma ação de verdade até
         // o jogador ser expulso do socket da sala (ver _registrarTimeout /
         // jogadorExpulsoPorInatividade) — a vaga na partida continua, só o
@@ -30,7 +30,7 @@ export class GameController extends EventEmitter {
         // bots/BotBrain.js (bot de verdade ou assento tomado por timeout,
         // ver PlayerGame.bot) — sem isso a mesa inteira de bots resolve uma
         // vaza inteira no mesmo tick, rápido demais pra acompanhar na UI.
-        this.atrasoBotMs = atrasoBotMs ?? 1_000;
+        this.atrasoBotMs = atrasoBotMs ?? 2_000;
         this.jogadores = [];
         this.game = null;
         this.rodada = null;
