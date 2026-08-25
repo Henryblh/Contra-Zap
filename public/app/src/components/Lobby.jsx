@@ -3,11 +3,13 @@ import { chamar } from '../socket.js';
 
 const INTERVALO_ATUALIZACAO_MS = 10_000;
 
-// Tela 2: criar uma sala nova ou listar/entrar numa já aberta.
-export default function Lobby({ meuNome, onEntrouNaSala }) {
+// Tela 2: criar uma sala nova, listar/entrar numa já aberta, ou reconectar
+// numa partida em andamento da qual fomos expulsos por inatividade.
+export default function Lobby({ meuNome, salaExpulsa, onEntrouNaSala, onReconectou }) {
     const [salas, setSalas] = useState(null); // null = ainda não buscou
     const [numberPlayers, setNumberPlayers] = useState(4);
     const [roundStart, setRoundStart] = useState(3);
+    const [reconectando, setReconectando] = useState(false);
     const [erro, setErro] = useState(null);
 
     async function atualizarLista() {
@@ -53,9 +55,36 @@ export default function Lobby({ meuNome, onEntrouNaSala }) {
         }
     }
 
+    // A sala nunca aparece em "Salas abertas" (listarSalas só devolve salas
+    // não iniciadas) — a partida dela já começou, então o único jeito de
+    // voltar é "reconectar" direto pelo salaId guardado no App desde a
+    // expulsão, sem passar por entrarSala.
+    async function reconectar() {
+        setErro(null);
+        setReconectando(true);
+        try {
+            const resposta = await chamar('reconectar', { salaId: salaExpulsa });
+            onReconectou(salaExpulsa, resposta);
+        } catch (erroDaChamada) {
+            setErro(erroDaChamada.message);
+        } finally {
+            setReconectando(false);
+        }
+    }
+
     return (
         <div className="cartao">
             <h1>Olá, {meuNome}</h1>
+
+            {salaExpulsa && (
+                <section>
+                    <h2>⏱️ Você foi desconectado da sala {salaExpulsa} por inatividade</h2>
+                    <p>Sua vaga na partida continua reservada.</p>
+                    <button onClick={reconectar} disabled={reconectando} type="button">
+                        {reconectando ? 'Reconectando...' : 'Reconectar'}
+                    </button>
+                </section>
+            )}
 
             <section>
                 <h2>Criar sala</h2>

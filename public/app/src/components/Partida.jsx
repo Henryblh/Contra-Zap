@@ -5,19 +5,24 @@ import { socket, chamar } from '../socket.js';
 // só (não um por fase) porque é uma assinatura contínua dos mesmos eventos
 // do GameController, do início ao fim — ver conexao/PROTOCOLO.md pra tabela
 // completa de eventos e payloads.
-export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSala }) {
+// `reconexao`, quando presente, vem do ack de "reconectar" (chamado pela
+// Lobby depois de uma expulsão por inatividade) — { mao, suaVez,
+// jogadorDaVez } — e é o que permite montar esta tela já em andamento, sem
+// esperar um novaRodadaIniciada/suaMao que já aconteceram antes da gente
+// voltar (a partida não pausa enquanto o assento está no automático).
+export default function Partida({ salaId, jogadoresIniciais, reconexao, meuNome, onSairDaSala, onExpulsoPorInatividade }) {
     // Semeado do ack de criarSala/entrarSala, não do broadcast de
     // listaJogadores — o primeiro broadcast sai antes desta tela existir
     // (e o listener abaixo com ele), então dependeria de um evento que já
     // passou. Broadcasts seguintes (mais gente entrando) chegam normal.
     const [jogadores, setJogadores] = useState(jogadoresIniciais ?? []);
     const [segundosParaIniciar, setSegundosParaIniciar] = useState(null);
-    const [iniciada, setIniciada] = useState(false);
-    const [mao, setMao] = useState([]);
+    const [iniciada, setIniciada] = useState(!!reconexao);
+    const [mao, setMao] = useState(reconexao?.mao ?? []);
     const [jogadorDaVezAposta, setJogadorDaVezAposta] = useState(null);
     const [valorAposta, setValorAposta] = useState('');
     const [cartasRodada, setCartasRodada] = useState(0);
-    const [jogadorDaVez, setJogadorDaVez] = useState(null);
+    const [jogadorDaVez, setJogadorDaVez] = useState(reconexao?.jogadorDaVez ?? null);
     const [mesa, setMesa] = useState([]);
     const [vira, setVira] = useState(null);
     const [ultimoPlacar, setUltimoPlacar] = useState([]);
@@ -28,6 +33,10 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
     useEffect(() => {
         const registrar = (linha) => setLog((anterior) => [...anterior.slice(-49), linha]);
         const daSala = (payload) => payload.salaId === salaId;
+
+        if (reconexao) {
+            registrar(`🔌 Reconectado — ${reconexao.suaVez ? 'sua vez agora' : `vez de ${reconexao.jogadorDaVez ?? '...'}`}`);
+        }
 
         const handlers = {
             listaJogadores(p) {
@@ -105,6 +114,15 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
             jogadorReconectou(p) {
                 if (!daSala(p)) return;
                 registrar(`🔌 ${p.jogador} reconectou`);
+            },
+            jogadorExpulsoPorInatividade(p) {
+                if (!daSala(p)) return;
+                if (p.jogador === meuNome) {
+                    registrar('⏱️ Você foi desconectado da sala por inatividade');
+                    onExpulsoPorInatividade(salaId);
+                } else {
+                    registrar(`⏱️ ${p.jogador} foi desconectado por inatividade`);
+                }
             },
         };
 
