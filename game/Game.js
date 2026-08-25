@@ -18,11 +18,16 @@ export class Game {
     }
 
 
+    // Embaralha de verdade quem senta ao lado de quem — girar a partir de
+    // um índice aleatório (como era antes) só sorteava quem começa, mas a
+    // vizinhança continuava sendo a ordem de entrada na sala (rotação não
+    // muda adjacência num ciclo). Fisher-Yates aqui garante que a ordem de
+    // turno não tem nenhuma relação com a ordem que os jogadores entraram.
     setstartsequence() {
-        let starterPlayer= Math.floor(Math.random() * this.numberPlayers);
-        for (let i = 0; i < this.jogadores.length; i++) {
-            const index = (starterPlayer + i) % this.jogadores.length;
-            this.gameOrder.push(this.jogadores[index]);
+        this.gameOrder = [...this.jogadores];
+        for (let i = this.gameOrder.length - 1; i > 0; i--) {
+            const j = Math.floor(Math.random() * (i + 1));
+            [this.gameOrder[i], this.gameOrder[j]] = [this.gameOrder[j], this.gameOrder[i]];
         }
 
         this.ordemOriginal = [...this.gameOrder];

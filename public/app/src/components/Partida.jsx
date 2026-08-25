@@ -14,6 +14,8 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
     const [segundosParaIniciar, setSegundosParaIniciar] = useState(null);
     const [iniciada, setIniciada] = useState(false);
     const [mao, setMao] = useState([]);
+    const [jogadorDaVezAposta, setJogadorDaVezAposta] = useState(null);
+    const [valorAposta, setValorAposta] = useState('');
     const [jogadorDaVez, setJogadorDaVez] = useState(null);
     const [mesa, setMesa] = useState([]);
     const [vira, setVira] = useState(null);
@@ -42,6 +44,7 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
                 setIniciada(true);
                 setMesa([]);
                 setVira(null);
+                setJogadorDaVezAposta(null);
                 registrar(`Rodada ${p.numero} (${p.cartas} carta(s))`);
             },
             suaMao(p) {
@@ -54,8 +57,14 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
                 setVira({ carta: p.vira, valor: p.viraValor });
                 registrar(`Vira: ${p.vira} — manilha valor ${p.viraValor}`);
             },
+            turnoAposta(p) {
+                if (!daSala(p)) return;
+                setJogadorDaVezAposta(p.jogador);
+                registrar(`Vez de ${p.jogador} apostar`);
+            },
             apostaFeita(p) {
                 if (!daSala(p)) return;
+                setJogadorDaVezAposta(null);
                 registrar(`${p.jogador} apostou ${p.aposta}`);
             },
             turnoJogador(p) {
@@ -117,6 +126,22 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
         };
     }, [salaId]);
 
+    async function apostar(evento) {
+        evento.preventDefault();
+        setErro(null);
+        const valor = Number(valorAposta);
+        if (!Number.isInteger(valor) || valor < 0) {
+            setErro('Aposta precisa ser um número inteiro maior ou igual a 0.');
+            return;
+        }
+        try {
+            await chamar('apostar', { salaId, valor });
+            setValorAposta('');
+        } catch (erroDaChamada) {
+            setErro(erroDaChamada.message);
+        }
+    }
+
     async function jogar(indice) {
         setErro(null);
         try {
@@ -146,6 +171,7 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
     }
 
     const souEuNaVez = iniciada && jogadorDaVez === meuNome && !vencedor;
+    const souEuNaVezDaAposta = iniciada && jogadorDaVezAposta === meuNome && !vencedor;
 
     console.log('vira:', vira);
 
@@ -189,6 +215,28 @@ export default function Partida({ salaId, jogadoresIniciais, meuNome, onSairDaSa
                             <div className="mao">
                                 <span className="carta">{vira.carta}<br /><small>manilha: {vira.valor}</small></span>
                             </div>
+                        </>
+                    )}
+
+                    {jogadorDaVezAposta && (
+                        <>
+                            <h3>Aposta{souEuNaVezDaAposta ? ' — sua vez' : ` — vez de ${jogadorDaVezAposta}`}</h3>
+                            {souEuNaVezDaAposta ? (
+                                <form className="linha" onSubmit={apostar}>
+                                    <label>
+                                        Quantas vazas você acha que vai fazer?
+                                        <input
+                                            type="number" min="0"
+                                            value={valorAposta}
+                                            onChange={(e) => setValorAposta(e.target.value)}
+                                            autoFocus
+                                        />
+                                    </label>
+                                    <button type="submit">Apostar</button>
+                                </form>
+                            ) : (
+                                <p>Aguardando {jogadorDaVezAposta} apostar...</p>
+                            )}
                         </>
                     )}
 
