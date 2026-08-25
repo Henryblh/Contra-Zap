@@ -94,6 +94,17 @@ export default function Partida({ salaId, jogadoresIniciais, reconexao, meuNome,
             cartaJogada(p) {
                 if (!daSala(p)) return;
                 setMesa((anterior) => [...anterior, { jogador: p.jogador, carta: p.carta }]);
+                // Cobre a jogada automática por timeout: nesse caso ninguém
+                // chamou jogar() localmente, então a carta nunca saiu da
+                // mão — sem isso ficava uma carta fantasma na UI. Pra
+                // jogada manual (que já removeu por índice em jogar()) isso
+                // não acha a carta de novo e não faz nada.
+                if (p.jogador === meuNome) {
+                    setMao((anterior) => {
+                        const indice = anterior.indexOf(p.carta);
+                        return indice === -1 ? anterior : anterior.filter((_, i) => i !== indice);
+                    });
+                }
                 registrar(`${p.jogador} jogou ${p.carta}`);
             },
             vazaFinalizada(p) {
