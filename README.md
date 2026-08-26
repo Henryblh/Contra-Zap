@@ -150,9 +150,21 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
 - Debugging geral: testar cenários de borda em produção/rede real antes de
   considerar estável.
 
-- baralho tem que te id 
-
 - o player recebe a carta dos outro ???????
+
+*ranking: tentar juntar pessoas de um nível similar durante sala ranqueadas, ou casuais
+
+*Quickplay: Sistema de em uma fila para criação de salas e entrar em salas automaticamente com base nas default settings
+
+Placar: Algum método de quantificar performance do jogador
+
+Guest. forma de jogardor conseguir acessar o sistema como um jogador sem login aonde ficará sem nome nem senha um jogador temporário
+
+Bugs: Ao criar um sala com 4 espaços e 3 bots o sistema não registra que a sals esta cheia eu não libera para ser jogada sozinho
+
+Bugs: um jogador que entra na sala e sai usando o botão de sair deveria ser imediatamente substituito por um bot , porem o mesmo só acontece quando o limite de inatividade é alcançado
+
+
 
 ### Sugestões pra deixar o motor redondo antes de investir no front
 
