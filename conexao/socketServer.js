@@ -72,17 +72,34 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
         socket.on(EventosCliente.CRIAR_SALA, (config = {}, ack) => {
             responder(ack, () => {
                 const player = exigirJogador();
-                const sala = salaManager.criarSala(player, config);
-                socket.join(sala.salaId);
-                salaPorSocket.set(socket.id, sala.salaId);
-                ligarControllerASala(io, sala, socketPorJogador, salaPorSocket);
+                // O join na room e a retransmissão dos eventos do controller
+                // vão num callback que roda ANTES dos bots entrarem: com um
+                // botNumber que já lota a sala, o agendarInicio (e o
+                // partidaIniciandoEm junto) dispara de dentro de criarSala —
+                // se o socket ainda não estivesse na room e ligarControllerASala
+                // ainda não tivesse assinado os eventos, esse primeiro
+                // partidaIniciandoEm se perderia (mesmo motivo do roster vir
+                // no próprio ack).
+                const sala = salaManager.criarSala(player, config, (salaCriada) => {
+                    socket.join(salaCriada.salaId);
+                    salaPorSocket.set(socket.id, salaCriada.salaId);
+                    ligarControllerASala(io, salaCriada, socketPorJogador, salaPorSocket);
+                });
                 notificarSala(io, sala);
                 // jogadores vai no próprio ack (não só no broadcast de
                 // listaJogadores): o broadcast sai daqui dentro do handler,
                 // antes do ack — um cliente que só registra o listener
                 // depois de processar o ack (ex.: monta a tela da sala só
-                // então) perde esse primeiro broadcast pra sempre.
-                return { salaId: sala.salaId, numberPlayers: sala.numberPlayers, jogadores: resumoJogadores(sala) };
+                // então) perde esse primeiro broadcast pra sempre. Mesma
+                // história pro partidaIniciandoEm quando botNumber já lota a
+                // sala: o agendarInicio dispara dentro de criarSala, antes
+                // do ack — então o "quantos segundos" também vem aqui.
+                return {
+                    salaId: sala.salaId,
+                    numberPlayers: sala.numberPlayers,
+                    jogadores: resumoJogadores(sala),
+                    segundosParaIniciar: sala.controller.inicioAgendado ? sala.controller.segundosParaIniciar : null,
+                };
             });
         });
 
@@ -97,6 +114,11 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
                     salaId: sala.salaId,
                     numberPlayers: sala.numberPlayers,
                     jogadores: resumoJogadores(sala),
+                    // Se ESTA entrada lotou a sala, o partidaIniciandoEm já
+                    // saiu no broadcast (antes deste ack) — quem acabou de
+                    // entrar só monta a tela agora e o perderia; por isso o
+                    // "quantos segundos" também vem no ack.
+                    segundosParaIniciar: sala.controller.inicioAgendado ? sala.controller.segundosParaIniciar : null,
                 };
             });
         });
@@ -123,6 +145,18 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
                 socket.leave(salaId);
                 salaPorSocket.delete(socket.id);
                 notificarSala(io, sala);
+                return {};
+            });
+        });
+
+        socket.on(EventosCliente.SAIR_DA_PARTIDA, ({ salaId } = {}, ack) => {
+            responder(ack, () => {
+                const player = exigirJogador();
+                // Vira bot na hora (ver GameController.abandonarPartida). O
+                // jogadorExpulsoPorInatividade que sai daí já é o que tira o
+                // socket dele da room, pelo listener em ligarControllerASala —
+                // nada a fazer aqui além de disparar.
+                salaManager.abandonarPartida(salaId, player);
                 return {};
             });
         });

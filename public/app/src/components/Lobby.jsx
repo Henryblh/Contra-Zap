@@ -41,8 +41,9 @@ export default function Lobby({ meuNome, salaParaReconectar, onEntrouNaSala, onR
             });
             // O ack já traz o roster inicial (não só o broadcast de
             // listaJogadores) — a tela da sala só monta depois disso, então
-            // dependeria de um broadcast que já passou.
-            onEntrouNaSala(resposta.salaId, resposta.jogadores);
+            // dependeria de um broadcast que já passou. Mesma coisa pro
+            // segundosParaIniciar quando os bots já lotaram a sala.
+            onEntrouNaSala(resposta.salaId, resposta.jogadores, resposta.segundosParaIniciar);
         } catch (erroDaChamada) {
             setErro(erroDaChamada.message);
         }
@@ -52,7 +53,7 @@ export default function Lobby({ meuNome, salaParaReconectar, onEntrouNaSala, onR
         setErro(null);
         try {
             const resposta = await chamar('entrarSala', { salaId });
-            onEntrouNaSala(salaId, resposta.jogadores);
+            onEntrouNaSala(salaId, resposta.jogadores, resposta.segundosParaIniciar);
         } catch (erroDaChamada) {
             setErro(erroDaChamada.message);
         }

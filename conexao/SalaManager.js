@@ -81,7 +81,14 @@ export class SalaManager {
     // bots (ver bots/Bot.js) assim que a sala nasce — se isso já lotar a
     // sala, a partida é agendada na hora, igual a qualquer entrarSala que
     // lote (ver _entrar).
-    criarSala(player, config = {}) {
+    //
+    // `aoNascer(sala)` (opcional) roda depois que o dono entrou mas ANTES
+    // dos bots — é o gancho pra camada de socket ligar a retransmissão dos
+    // eventos do controller (e o join na room) antes de um botNumber que
+    // lota a sala disparar agendarInicio/partidaIniciandoEm de dentro daqui;
+    // sem isso esse primeiro evento se perderia (mesmo motivo do roster vir
+    // no próprio ack de criarSala — ver conexao/socketServer.js).
+    criarSala(player, config = {}, aoNascer) {
         const numberPlayers = config.numberPlayers ?? 4;
         const roundStart = config.roundStart ?? 3;
         const botNumber = config.botNumber ?? 0;
@@ -100,6 +107,8 @@ export class SalaManager {
         this.salas.set(salaId, sala);
         this._entrar(sala, player);
         sala.jogadores[0].adm = true;
+
+        aoNascer?.(sala);
 
         for (let i = 0; i < botNumber; i++) {
             this._entrar(sala, new Bot());
@@ -231,6 +240,26 @@ export class SalaManager {
 
         sala.controller.marcarReconectado(player.id);
         return { sala, estado };
+    }
+
+    // Abandono voluntário de uma partida JÁ em andamento (botão "Sair da
+    // partida" no front) — o par do sairSala, que só vale antes de começar.
+    // Reaproveita o caminho da expulsão por inatividade (ver
+    // GameController.abandonarPartida): o assento vira bot na hora em vez de
+    // esperar limiteInatividadeMs acumular a cada timeout. NAO_ESTA_NA_SALA
+    // se quem pediu não faz parte dessa partida.
+    abandonarPartida(salaId, player) {
+        const sala = this.salas.get(salaId);
+        if (!sala) {
+            throw new ErroSala(CodigosErro.SALA_NAO_ENCONTRADA, `Sala "${salaId}" não existe.`);
+        }
+        if (!sala.iniciada) {
+            throw new ErroSala(CodigosErro.SALA_NAO_INICIADA, 'A partida desta sala ainda não começou.');
+        }
+        if (!sala.controller.abandonarPartida(player.id)) {
+            throw new ErroSala(CodigosErro.NAO_ESTA_NA_SALA, 'Você não faz parte dessa partida.');
+        }
+        return sala;
     }
 
     // Tira o jogador da sala antes da partida começar — saída voluntária ou

@@ -46,9 +46,9 @@ export default function App() {
             <Lobby
                 meuNome={player.nome}
                 salaParaReconectar={salaParaReconectar}
-                onEntrouNaSala={(salaId, jogadoresIniciais) => {
+                onEntrouNaSala={(salaId, jogadoresIniciais, segundosParaIniciar) => {
                     setSalaParaReconectar(null);
-                    setSala({ salaId, jogadoresIniciais });
+                    setSala({ salaId, jogadoresIniciais, segundosParaIniciar });
                 }}
                 onReconectou={(salaId, reconexao) => {
                     setSalaParaReconectar(null);
@@ -61,6 +61,7 @@ export default function App() {
         <Partida
             salaId={sala.salaId}
             jogadoresIniciais={sala.jogadoresIniciais}
+            segundosIniciais={sala.segundosParaIniciar}
             reconexao={sala.reconexao}
             meuNome={player.nome}
             onSairDaSala={() => setSala(null)}

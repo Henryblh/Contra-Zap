@@ -160,9 +160,21 @@ Placar: Algum método de quantificar performance do jogador
 
 Guest. forma de jogardor conseguir acessar o sistema como um jogador sem login aonde ficará sem nome nem senha um jogador temporário
 
-Bugs: Ao criar um sala com 4 espaços e 3 bots o sistema não registra que a sals esta cheia eu não libera para ser jogada sozinho
+~~Bugs: Ao criar um sala com 4 espaços e 3 bots o sistema não registra que a sals esta cheia eu não libera para ser jogada sozinho~~
+RESOLVIDO: o loop de bots em `SalaManager.criarSala` lotava a sala e disparava
+`partidaIniciandoEm` **antes** de `socketServer.js` ligar a retransmissão dos
+eventos do controller e o socket entrar na room — o evento se perdia e o front
+nunca mostrava "sala cheia"/"Forçar início". Agora `criarSala` recebe um
+callback `aoNascer(sala)` que faz esse wiring antes dos bots entrarem.
 
-Bugs: um jogador que entra na sala e sai usando o botão de sair deveria ser imediatamente substituito por um bot , porem o mesmo só acontece quando o limite de inatividade é alcançado
+~~Bugs: um jogador que entra na sala e sai usando o botão de sair deveria ser imediatamente substituito por um bot , porem o mesmo só acontece quando o limite de inatividade é alcançado~~
+RESOLVIDO: "Sair da partida" (partida já iniciada) era puramente client-side —
+o servidor nem ficava sabendo, então o assento só virava bot depois de
+`limiteInatividadeMs` acumulando timeout a cada turno. Novo evento
+`sairDaPartida` → `GameController.abandonarPartida` liga as flags `bot`/
+`desconectado` na hora (mesmo caminho da expulsão por inatividade). Sair
+**antes** da partida continua sendo `sairSala` (encolhe a sala), sem bot no
+lugar — decisão de manter o comportamento atual do protocolo.
 
 
 
