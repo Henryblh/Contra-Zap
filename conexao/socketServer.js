@@ -239,8 +239,9 @@ function notificarSala(io, sala) {
 // Assina os eventos do GameController da sala e retransmite pros sockets.
 // Chamado uma vez só, na criação da sala — o controller vive tanto quanto a
 // sala, então essa assinatura vale pro resto da vida dela (espera + partida
-// inteira). Todo evento é broadcast pra sala, exceto cartasDistribuidas, que
-// é privado por natureza (a mão de cada jogador só pode ir pra ele).
+// inteira). Todo evento é broadcast pra sala, exceto cartasDistribuidas e
+// maosReveladas, que são privados por natureza (cada jogador recebe só o que
+// ele pode ver — a própria mão, ou a dos outros na rodada de 1 carta).
 function ligarControllerASala(io, sala, socketPorJogador, salaPorSocket) {
     const { salaId, controller } = sala;
 
@@ -280,6 +281,19 @@ function ligarControllerASala(io, sala, socketPorJogador, salaPorSocket) {
     controller.on('cartasDistribuidas', (maos) => {
         for (const { id, mao } of maos) {
             io.to(`jogador:${id}`).emit(EventosServidor.SUA_MAO, { salaId, mao });
+        }
+    });
+
+    // Privado como suaMao, mas o recorte muda por destinatário: cada jogador
+    // recebe o conjunto de mãos que ele pode ver. Hoje só a rodada de 1 carta
+    // usa isto, com `ocultarProprio` — cada um vê a mão dos outros, não a sua.
+    // Bots têm id mas nenhuma room `jogador:<id>`, então o emit pra eles só
+    // não chega a lugar nenhum.
+    controller.on(EventosServidor.MAOS_REVELADAS, ({ maos, ocultarProprio }) => {
+        for (const alvo of maos) {
+            const visiveis = (ocultarProprio ? maos.filter(m => m.id !== alvo.id) : maos)
+                .map(m => ({ jogador: m.nome, mao: m.mao }));
+            io.to(`jogador:${alvo.id}`).emit(EventosServidor.MAOS_REVELADAS, { salaId, maos: visiveis });
         }
     });
 }

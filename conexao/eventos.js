@@ -35,6 +35,7 @@ export const EventosServidor = {
     PARTIDA_INICIANDO_EM: 'partidaIniciandoEm', // { salaId, segundos }
     NOVA_RODADA_INICIADA: 'novaRodadaIniciada', // { salaId, numero, cartas }
     SUA_MAO: 'suaMao',                          // { salaId, mao: string[] } — PRIVADO
+    MAOS_REVELADAS: 'maosReveladas',            // { salaId, maos: [{ jogador, mao: string[] }] } — PRIVADO; conjunto de mãos que ESTE jogador pode ver (hoje: rodada de 1 carta / "testa", cada um vê a mão dos outros menos a sua). Genérico — dá pra reusar em showdown, espectador, debug.
     MANILHA_VIRADA: 'manilhaVirada',            // { salaId, vira, viraValor }
     TURNO_APOSTA: 'turnoAposta',                // { salaId, id, jogador } — id de quem tem que apostar agora
     APOSTA_FEITA: 'apostaFeita',                // { salaId, jogador, aposta } — só depois que a aposta foi de fato registrada (real ou timeout)

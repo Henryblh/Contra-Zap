@@ -159,6 +159,10 @@ socket.on('suaMao', ({ mao }) => {
     minhaMao = mao;
     console.log(`Sua mão: ${mao.map((c, i) => `${i + 1}) ${c}`).join('  ')}`);
 });
+// Rodada de 1 carta ("testa"): a mão dos outros vem aqui, a sua não.
+socket.on('maosReveladas', ({ maos }) => {
+    console.log(`Rodada cega — cartas dos outros: ${maos.map((m) => `${m.jogador}: ${m.mao.join(', ')}`).join(' | ')}`);
+});
 socket.on('manilhaVirada', ({ vira, viraValor }) => {
     console.log(`Vira: ${vira} | Manilha: ${viraValor}`);
 });
