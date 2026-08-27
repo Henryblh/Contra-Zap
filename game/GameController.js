@@ -36,9 +36,21 @@ export class GameController extends EventEmitter {
         this.rodada = null;
         this.numeroRodada = 0;
         this._timerInicio = null;
+        // segundos passados pro último agendarInicio — só pra quem chega
+        // depois do broadcast de partidaIniciandoEm (ex.: o cliente que
+        // criou a sala e só monta a tela depois do ack) conseguir semear o
+        // contador. null enquanto não há início agendado.
+        this._segundosParaIniciar = null;
         this._jogadaEsperada = null;
         this._apostaEsperada = null;
     }
+
+    // Início já agendado (sala lotou) mas partida ainda não começou — o
+    // estado entre agendarInicio e iniciarPartida. `segundosParaIniciar` é
+    // o valor que foi (ou seria) emitido em partidaIniciandoEm; null quando
+    // não há nada agendado.
+    get inicioAgendado() { return this._timerInicio !== null; }
+    get segundosParaIniciar() { return this._segundosParaIniciar; }
 
     // Sala de espera: transforma o Player que entrou num PlayerGame e guarda
     // na lista até a partida começar. Ordem de chegada é a própria posição
@@ -58,7 +70,8 @@ export class GameController extends EventEmitter {
 
         this._timerInicio = setTimeout(() => this.iniciarPartida(), tempoEsperaMs);
         this._timerInicio.unref?.(); // não deve segurar o processo vivo (testes, shutdown)
-        this.emit('partidaIniciandoEm', { segundos: tempoEsperaMs / 1000 });
+        this._segundosParaIniciar = tempoEsperaMs / 1000;
+        this.emit('partidaIniciandoEm', { segundos: this._segundosParaIniciar });
     }
 
     // Pura consulta — não lança, não muda estado. Quem decide se isso vira
@@ -86,6 +99,7 @@ export class GameController extends EventEmitter {
         if (this._timerInicio) {
             clearTimeout(this._timerInicio);
             this._timerInicio = null;
+            this._segundosParaIniciar = null;
         }
 
         this.emit('jogadorSaiu', { id: playerId });
@@ -99,6 +113,7 @@ export class GameController extends EventEmitter {
         if (this._timerInicio) {
             clearTimeout(this._timerInicio);
             this._timerInicio = null;
+            this._segundosParaIniciar = null;
         }
         this.iniciarPartida();
     }
@@ -109,6 +124,7 @@ export class GameController extends EventEmitter {
         if (this._timerInicio) {
             clearTimeout(this._timerInicio);
             this._timerInicio = null;
+            this._segundosParaIniciar = null;
         }
 
         this.game = new Game({
@@ -401,6 +417,29 @@ export class GameController extends EventEmitter {
             suaVezDaAposta: idDaVezAposta === playerId,
             jogadorDaVezAposta: idDaVezAposta ? this.jogadores.find(j => j.id === idDaVezAposta)?.nome ?? null : null,
         };
+    }
+
+    // Abandono voluntário de uma partida em andamento (botão "Sair da
+    // partida" no front, via conexao/SalaManager.js). Diferente de uma falta
+    // isolada por timeout — aqui a pessoa disse que vai embora, então o
+    // assento já vira bot na hora, sem esperar limiteInatividadeMs acumular:
+    // liga as mesmas flags que _registrarTimeout ligaria na expulsão por
+    // inatividade (desconectado + bot + expulsoPorInatividade) e emite o
+    // mesmo jogadorExpulsoPorInatividade, que a camada de socket usa pra
+    // tirar o socket dele da room. A vaga em `jogadores` continua — volta a
+    // ser humano se ele reconectar ou jogar/apostar de verdade
+    // (_registrarAtividade). Devolve false se esse playerId não faz parte da
+    // partida (ninguém com esse id, ou a partida nem começou).
+    abandonarPartida(playerId) {
+        if (!this.game) return false;
+        const jogador = this.jogadores.find(j => j.id === playerId);
+        if (!jogador) return false;
+
+        jogador.desconectado = true;
+        jogador.bot = true;
+        jogador.expulsoPorInatividade = true;
+        this.emit('jogadorExpulsoPorInatividade', { id: jogador.id, jogador: jogador.nome });
+        return true;
     }
 
     // Chamado quando o jogador reconecta de verdade (ver conexao/SalaManager.js)

@@ -14,13 +14,18 @@ import { socket, chamar } from '../socket.js';
 // duas frentes (aposta e carta) nunca vêm preenchidas ao mesmo tempo — no
 // máximo uma delas reflete a espera de verdade, a outra some sozinha assim
 // que a fase seguinte começar de verdade.
-export default function Partida({ salaId, jogadoresIniciais, reconexao, meuNome, onSairDaSala, onSairDaPartida }) {
+export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, reconexao, meuNome, onSairDaSala, onSairDaPartida }) {
     // Semeado do ack de criarSala/entrarSala, não do broadcast de
     // listaJogadores — o primeiro broadcast sai antes desta tela existir
     // (e o listener abaixo com ele), então dependeria de um evento que já
     // passou. Broadcasts seguintes (mais gente entrando) chegam normal.
     const [jogadores, setJogadores] = useState(jogadoresIniciais ?? []);
-    const [segundosParaIniciar, setSegundosParaIniciar] = useState(null);
+    // Semeado do ack de criarSala/entrarSala (não do broadcast de
+    // partidaIniciandoEm): quando os bots — ou a última entrada — lotam a
+    // sala, esse broadcast sai antes desta tela existir. Broadcasts
+    // seguintes (ex.: forcarInicio cancelado não existe, mas outra lotação
+    // depois de um sairSala, sim) chegam normal pelo handler abaixo.
+    const [segundosParaIniciar, setSegundosParaIniciar] = useState(segundosIniciais ?? null);
     const [iniciada, setIniciada] = useState(!!reconexao);
     const [mao, setMao] = useState(reconexao?.mao ?? []);
     const [jogadorDaVezAposta, setJogadorDaVezAposta] = useState(reconexao?.jogadorDaVezAposta ?? null);
@@ -213,11 +218,15 @@ export default function Partida({ salaId, jogadoresIniciais, reconexao, meuNome,
 
     // Botão de sair é sempre uma opção, antes ou depois da partida começar —
     // só muda o que significa "sair". Antes: sairSala de verdade (tira o
-    // assento, ver PROTOCOLO.md). Depois: não existe (nem precisa existir)
-    // evento de protocolo pra isso — cair da partida "do nada" já não mexe
-    // no assento, então isso é puramente client-side, igual uma expulsão
-    // por inatividade faria: volta pra tela de salas oferecendo reconectar,
-    // e o jogo continua rodando no automático até alguém voltar.
+    // assento, ver PROTOCOLO.md). Depois: sairDaPartida — o assento vira bot
+    // na hora no servidor (reaproveita o caminho da expulsão por
+    // inatividade), em vez de esperar o timeout de inatividade acumular a
+    // cada turno. Nos dois casos a gente volta pra tela de salas; se a
+    // partida já tinha começado, a Lobby oferece reconectar (a vaga
+    // continua reservada). O onSairDaPartida também é chamado pelo handler
+    // de jogadorExpulsoPorInatividade quando o evento chega — chamar aqui
+    // cobre o caso de a resposta demorar/falhar, e a dupla chamada é
+    // idempotente (mesmo salaId, mesmo setSala(null)).
     async function sair() {
         if (!iniciada) {
             try {
@@ -227,6 +236,12 @@ export default function Partida({ salaId, jogadoresIniciais, reconexao, meuNome,
             }
             onSairDaSala();
             return;
+        }
+        try {
+            await chamar('sairDaPartida', { salaId });
+        } catch {
+            // melhor esforço — mesmo se falhar, saímos da tela; o assento
+            // acaba virando bot pelo timeout de inatividade de qualquer jeito
         }
         onSairDaPartida(salaId);
     }

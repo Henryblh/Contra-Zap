@@ -13,11 +13,12 @@
 export const EventosCliente = {
     ENTRAR: 'entrar',           // { nome, senha } -> ack: { ok, nome, token }
     CADASTRAR: 'cadastrar',     // { nome, senha } -> ack: { ok, nome, token } — já autentica, sem precisar de "entrar" depois
-    CRIAR_SALA: 'criarSala',    // { numberPlayers, roundStart, randomShuffle, botNumber } -> ack: { ok, salaId, numberPlayers } — botNumber preenche o resto dos assentos com bots (ver bots/Bot.js)
-    ENTRAR_SALA: 'entrarSala',  // { salaId } -> ack: { ok, salaId, numberPlayers, jogadores }
+    CRIAR_SALA: 'criarSala',    // { numberPlayers, roundStart, randomShuffle, botNumber } -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar } — botNumber preenche o resto dos assentos com bots (ver bots/Bot.js); segundosParaIniciar != null se os bots já lotaram a sala
+    ENTRAR_SALA: 'entrarSala',  // { salaId } -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar } — segundosParaIniciar != null se esta entrada lotou a sala
     LISTAR_SALAS: 'listarSalas', // {} -> ack: { ok, salas: [{ salaId, numberPlayers, jogadoresAtual }] }
     FORCAR_INICIO: 'forcarInicio', // { salaId } -> ack: { ok } — só o adm da sala, só com a sala cheia
     SAIR_SALA: 'sairSala',       // { salaId } -> ack: { ok } — só antes da partida começar
+    SAIR_DA_PARTIDA: 'sairDaPartida', // { salaId } -> ack: { ok } — abandono voluntário de partida JÁ em andamento; o assento vira bot na hora (reaproveita o caminho da expulsão por inatividade)
     APOSTAR: 'apostar',          // { salaId, valor } -> ack: { ok } — valor é o número de vazas que o jogador acha que vai fazer
     JOGAR_CARTA: 'jogarCarta',   // { salaId, indice } -> ack: { ok } — indice é 0-based, posição na mão
     RECONECTAR: 'reconectar',    // { salaId } -> ack: { ok, mao, suaVez, jogadorDaVez } — sala com partida já em andamento

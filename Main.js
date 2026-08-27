@@ -58,7 +58,11 @@ controller.on('cartaJogada', ({ jogador, carta, status }) => {
 
 controller.on('vazaFinalizada', ({ vencedor, carta }) => {
     if (vencedor) {
-        console.log(`vencedor da vaza: ${vencedor}, com o: ${carta}`);
+        // `carta` no payload já vem como string (protocolo manda string pro
+        // cliente, ver PROTOCOLO.md) — pra debugar o numeroBaralho aqui no
+        // harness, pega o objeto Carta de verdade direto da mesa ainda ativa.
+        const numeroBaralho = controller.rodada.mesaAtiva.melhorJogada.carta.numeroBaralho;
+        console.log(`vencedor da vaza: ${vencedor}, com o: ${carta} (baralho ${numeroBaralho})`);
     } else {
         console.log(`vaza melada, ninguém pontuou`);
     }

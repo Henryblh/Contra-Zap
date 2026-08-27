@@ -87,22 +87,28 @@ nem reconectam, e cada turno deles é decidido por `bots/BotBrain.js` e
 jogado depois de uma pausa de `atrasoBotMs` (1s por padrão), sem esperar
 `tempoTurnoMs` (ver `PlayerGame.bot`).
 Pré-condição: socket já mandou `entrar` com sucesso.
-Ack sucesso: `{ ok: true, salaId, numberPlayers, jogadores: [{ nome }] }`. O
-socket já dá `join` na sala; `jogadores` vem no próprio ack (só 1: o dono,
-que também vira o adm — ver `forcarInicio`) porque o broadcast de
-`listaJogadores` sai *dentro* deste handler, antes do ack — um cliente que
-só registra o listener depois de processar o ack perderia esse primeiro
-broadcast pra sempre. Não confie nele pro estado inicial, só nos que vêm
-depois.
+Ack sucesso: `{ ok: true, salaId, numberPlayers, jogadores: [{ nome }],
+segundosParaIniciar: number | null }`. O socket já dá `join` na sala;
+`jogadores` vem no próprio ack (o dono + os bots que `botNumber` já colocou)
+porque o broadcast de `listaJogadores` sai *dentro* deste handler, antes do
+ack — um cliente que só registra o listener depois de processar o ack
+perderia esse primeiro broadcast pra sempre. Não confie nele pro estado
+inicial, só nos que vêm depois. `segundosParaIniciar` é `null` na maioria
+dos casos, mas vem preenchido quando `botNumber` já lotou a sala: aí o
+`agendarInicio` (e o broadcast de `partidaIniciandoEm`) dispara dentro deste
+handler, antes do ack — mesmo motivo de `jogadores` vir aqui.
 Erros possíveis: `NAO_IDENTIFICADO`, `CONFIGURACAO_INVALIDA`.
 
 ### `entrarSala`
 Payload: `{ salaId: string }`
 Pré-condição: socket já mandou `entrar` com sucesso.
-Ack sucesso: `{ ok: true, salaId, numberPlayers, jogadores }`. O socket já dá
-`join` na sala; todos os membros (incluindo quem entrou) recebem
-`listaJogadores` atualizado. Se essa entrada lotar a sala, o início
-automático é agendado (ver `partidaIniciandoEm`).
+Ack sucesso: `{ ok: true, salaId, numberPlayers, jogadores,
+segundosParaIniciar: number | null }`. O socket já dá `join` na sala; todos
+os membros (incluindo quem entrou) recebem `listaJogadores` atualizado. Se
+essa entrada lotar a sala, o início automático é agendado (ver
+`partidaIniciandoEm`) e `segundosParaIniciar` vem preenchido no ack — quem
+acabou de entrar só monta a tela depois do ack e perderia o broadcast de
+`partidaIniciandoEm` que já saiu.
 Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`, `SALA_CHEIA`,
 `SALA_JA_INICIADA`, `JA_ESTA_NA_SALA`, `NOME_INVALIDO` (nome duplicado na sala).
 
@@ -126,8 +132,8 @@ Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`, `SALA_JA_INICIADA`,
 ### `sairSala`
 Payload: `{ salaId: string }`
 Pré-condição: socket já mandou `entrar`; só funciona **antes** da partida
-começar (saída de partida em andamento — abandono/forfeit — não existe
-ainda, é feature separada).
+começar. Pra sair de uma partida **já em andamento**, ver `sairDaPartida`
+abaixo.
 Ack sucesso: `{ ok: true }`. O socket dá `leave` na sala e quem ficar recebe
 `listaJogadores` atualizado. Se quem saiu era o adm, a posição passa pro
 próximo da lista automaticamente. Se a sala ficar vazia, é descartada. Se
@@ -135,6 +141,24 @@ havia um início agendado (`partidaIniciandoEm`) e a sala deixou de estar
 cheia, o agendamento é cancelado.
 Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`, `SALA_JA_INICIADA`,
 `NAO_ESTA_NA_SALA`.
+
+### `sairDaPartida`
+Payload: `{ salaId: string }`
+Pré-condição: socket já mandou `entrar`; a partida da sala precisa **já ter
+começado** (antes disso é `sairSala`); e quem manda precisa fazer parte
+dessa partida.
+Ack sucesso: `{ ok: true }`. O assento **não** sai de `controller.jogadores`
+— vira bot na hora: liga as flags `desconectado`/`bot` (mesmo efeito da
+expulsão por inatividade, só que imediato, sem esperar `limiteInatividadeMs`
+acumular) e o servidor emite `jogadorExpulsoPorInatividade` pra sala, o que
+também tira o socket de quem saiu da room. A partir daí cada turno desse
+assento é jogado na hora por `bots/BotBrain.js` (com a pausa de
+`atrasoBotMs`), até alguém voltar via `reconectar` — exatamente como depois
+de uma expulsão por inatividade. Pra voltar: `entrar` (socket novo) +
+`reconectar`.
+Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`,
+`SALA_NAO_INICIADA` (a partida ainda não começou — use `sairSala`),
+`NAO_ESTA_NA_SALA` (não faz parte dessa partida).
 
 ### `apostar`
 Payload: `{ salaId: string, valor: number }` — `valor` é o número de vazas
@@ -308,7 +332,7 @@ adicionado:
 | `jogoFinalizado` | `{ vencedor }` |
 | `jogadaAutomatica` | `{ id, jogador }` — `tempoTurnoMs` estourou, o servidor jogou sozinho por ele |
 | `jogadorReconectou` | `{ id, jogador }` — voltou via `reconectar`, flag `desconectado` desligada |
-| `jogadorExpulsoPorInatividade` | `{ id, jogador }` — `limiteInatividadeMs` sem nenhuma ação real dele; o socket dele já saiu da room dessa sala (assento continua, ver seção de `reconectar` acima) |
+| `jogadorExpulsoPorInatividade` | `{ id, jogador }` — `limiteInatividadeMs` sem nenhuma ação real dele **ou** ele mandou `sairDaPartida`; o socket dele já saiu da room dessa sala (assento continua e vira bot, ver seção de `reconectar` acima) |
 
 ## Códigos de erro (`CodigosErro`)
 
@@ -348,9 +372,11 @@ adicionado:
   jogador da sala (`sairSala`), então "reconectar" ali é só logar de novo e
   mandar `entrarSala` como se fosse a primeira vez. `reconectar` (evento
   novo) só serve pra partida já em andamento.
-- Abandono/forfeit de partida em andamento (hoje só dá pra sair antes de
-  começar, via `sairSala` — uma vez que a partida começa, o único jeito de
-  "sair" é deixar o timeout jogar automático por você indefinidamente).
+- Abandono/forfeit "de verdade" (que libere a vaga, decida vitória por W.O.,
+  etc.). O que existe hoje — `sairDaPartida` — só transforma o assento em bot
+  na hora (reaproveitando o caminho da expulsão por inatividade): a partida
+  segue com o mesmo número de assentos, a vaga continua reservada pra
+  `reconectar`, e ninguém "ganha no grito" por alguém ter saído.
 - Reconexão via `Main2.js`: o harness de CLI não guarda o token entre
   execuções nem oferece a opção "reconectar" no menu — pra testar o fluxo
   de reconexão hoje é preciso emitir o evento manualmente (ou usar os
