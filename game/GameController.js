@@ -409,9 +409,18 @@ export class GameController extends EventEmitter {
 
         const idDaVez = this._jogadaEsperada?.jogadorId ?? null;
         const idDaVezAposta = this._apostaEsperada?.jogadorId ?? null;
+        // Na rodada de 1 carta a tela precisa das mãos dos outros pra remontar
+        // a "testa" (o broadcast de maosReveladas já passou antes de voltar).
+        // Só as de quem ainda não jogou — a rodada tem uma vaza só.
+        const maosReveladas = this.rodada.round === 1
+            ? this.rodada.gameOrder
+                .filter(j => j.id !== playerId && j.mao.length > 0)
+                .map(j => ({ jogador: j.nome, mao: j.mao.map(c => c.toString()) }))
+            : [];
         return {
             mao: jogador.mao.map(c => c.toString()),
             cartasRodada: this.rodada.round,
+            maosReveladas,
             suaVez: idDaVez === playerId,
             jogadorDaVez: idDaVez ? this.jogadores.find(j => j.id === idDaVez)?.nome ?? null : null,
             suaVezDaAposta: idDaVezAposta === playerId,
@@ -459,11 +468,22 @@ export class GameController extends EventEmitter {
         const rodada = this.rodada;
 
         rodada.darCartas();
-        this.emit('cartasDistribuidas', rodada.gameOrder.map(j => ({
+        const maos = rodada.gameOrder.map(j => ({
             id: j.id,
             nome: j.nome,
             mao: j.mao.map(c => c.toString())
-        })));
+        }));
+        this.emit('cartasDistribuidas', maos);
+
+        // Rodada de 1 carta ("testa"/rodada cega): cada jogador aposta sem
+        // saber a própria carta, mas vendo a de todo mundo. A camada de
+        // socket recorta por destinatário (cada um recebe `maos` menos a
+        // própria entrada, por causa de `ocultarProprio`). Evento genérico —
+        // `cartasDistribuidas`/`suaMao` continuam saindo normalmente (o
+        // cliente é quem esconde o valor da própria carta nessa rodada).
+        if (rodada.round === 1) {
+            this.emit('maosReveladas', { maos, ocultarProprio: true });
+        }
 
         rodada.virarManilha();
         this.emit('manilhaVirada', { vira: rodada.vira.toString(), viraValor: rodada.viraValor });

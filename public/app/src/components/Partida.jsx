@@ -28,6 +28,12 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
     const [segundosParaIniciar, setSegundosParaIniciar] = useState(segundosIniciais ?? null);
     const [iniciada, setIniciada] = useState(!!reconexao);
     const [mao, setMao] = useState(reconexao?.mao ?? []);
+    // { [nome]: string[] } — mãos dos outros que o servidor deixou este
+    // jogador ver. Hoje só a rodada de 1 carta ("testa") preenche isto: cada
+    // um vê a mão dos outros e esconde a sua. Zera a cada novaRodadaIniciada.
+    const [maosReveladas, setMaosReveladas] = useState(
+        () => Object.fromEntries((reconexao?.maosReveladas ?? []).map((m) => [m.jogador, m.mao]))
+    );
     const [jogadorDaVezAposta, setJogadorDaVezAposta] = useState(reconexao?.jogadorDaVezAposta ?? null);
     const [valorAposta, setValorAposta] = useState('');
     const [cartasRodada, setCartasRodada] = useState(reconexao?.cartasRodada ?? 0);
@@ -77,12 +83,18 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
                 setJogadorDaVezAposta(null);
                 setCartasRodada(p.cartas);
                 setApostas({});
+                setMaosReveladas({});
                 registrar(`Rodada ${p.numero} (${p.cartas} carta(s))`);
             },
             suaMao(p) {
                 if (!daSala(p)) return;
                 setMao(p.mao);
                 registrar(`Sua mão: ${p.mao.join(', ')}`);
+            },
+            maosReveladas(p) {
+                if (!daSala(p)) return;
+                setMaosReveladas(Object.fromEntries(p.maos.map((m) => [m.jogador, m.mao])));
+                registrar(`👁️ Rodada cega — ${p.maos.map((m) => `${m.jogador}: ${m.mao.join(', ')}`).join(' | ')}`);
             },
             manilhaVirada(p) {
                 if (!daSala(p)) return;
@@ -248,6 +260,11 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
 
     const souEuNaVez = iniciada && jogadorDaVez === meuNome && !vencedor;
     const souEuNaVezDaAposta = iniciada && jogadorDaVezAposta === meuNome && !vencedor;
+    // Rodada de 1 carta: a própria carta fica virada (o servidor manda o
+    // valor em suaMao, mas aqui a gente não mostra — a mão continua jogável
+    // normalmente por índice). As cartas dos outros vêm em maosReveladas.
+    const rodadaCega = iniciada && cartasRodada === 1;
+    const outrosNaTesta = Object.entries(maosReveladas);
 
     console.log('vira:', vira);
 
@@ -315,6 +332,19 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
                         </>
                     )}
 
+                    {outrosNaTesta.length > 0 && (
+                        <>
+                            <h3>Rodada cega — cartas dos outros (você não vê a sua)</h3>
+                            <div className="mao">
+                                {outrosNaTesta.map(([nome, cartas]) => (
+                                    <span key={nome} className="carta">
+                                        {cartas.join(' ')}<br /><small>{nome}</small>
+                                    </span>
+                                ))}
+                            </div>
+                        </>
+                    )}
+
                     {jogadorDaVezAposta && (
                         <>
                             <h3>Aposta{souEuNaVezDaAposta ? ' — sua vez' : ` — vez de ${jogadorDaVezAposta}`}</h3>
@@ -337,7 +367,11 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
                         </>
                     )}
 
-                    <h3>Sua mão{souEuNaVez ? ' — sua vez, clique numa carta' : ''}</h3>
+                    <h3>
+                        Sua mão
+                        {rodadaCega ? ' — virada (rodada cega)' : ''}
+                        {souEuNaVez ? ' — sua vez, clique numa carta' : ''}
+                    </h3>
                     <div className="mao">
                         {mao.map((carta, indice) => (
                             <button
@@ -346,7 +380,7 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
                                 disabled={!souEuNaVez}
                                 onClick={() => jogar(indice)}
                             >
-                                {carta}
+                                {rodadaCega ? '🂠' : carta}
                             </button>
                         ))}
                         {mao.length === 0 && <span className="vazio">(sem cartas)</span>}

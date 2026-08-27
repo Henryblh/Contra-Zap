@@ -268,15 +268,19 @@ logar de novo, o `socket.id` é outro); a sala precisa **já ter começado**
 (pra sala em espera, é só `entrarSala` mesmo) e quem manda precisa já fazer
 parte daquela partida (ter entrado na sala antes dela começar).
 Ack sucesso: `{ ok: true, salaId, mao: string[], cartasRodada: number,
-suaVez: boolean, jogadorDaVez: string | null, suaVezDaAposta: boolean,
+maosReveladas: [{ jogador, mao: string[] }], suaVez: boolean,
+jogadorDaVez: string | null, suaVezDaAposta: boolean,
 jogadorDaVezAposta: string | null }` — a mão atual de quem reconectou,
 quantas cartas tem a rodada (pro limite do input de aposta) e de quem é a
 vez agora, tanto pra jogar carta quanto pra apostar (as duas esperas nunca
 coexistem — no máximo um par faz sentido de cada vez, o outro fica
 `false`/`null`), pra o cliente já poder pedir a ação certa na hora, sem
-esperar um `turnoJogador`/`turnoAposta` que já passou antes dele voltar. O
-socket dá `join` na sala de novo (broadcasts futuros voltam a chegar) e a
-flag `desconectado` desse jogador é desligada.
+esperar um `turnoJogador`/`turnoAposta` que já passou antes dele voltar.
+`maosReveladas` só vem preenchido na rodada de 1 carta (ver evento
+`maosReveladas` abaixo) — são as mãos dos outros que ainda não jogaram, pra
+remontar a "testa" sem esperar o broadcast que já passou; vazio `[]` em
+qualquer outra rodada. O socket dá `join` na sala de novo (broadcasts
+futuros voltam a chegar) e a flag `desconectado` desse jogador é desligada.
 Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`,
 `SALA_NAO_INICIADA` (sala existe mas a partida não começou — use
 `entrarSala`), `NAO_ESTA_NA_SALA` (não faz parte dessa partida).
@@ -301,8 +305,9 @@ Erros possíveis: `NAO_IDENTIFICADO`.
 ## Eventos servidor -> cliente
 
 Todos levam `salaId` no payload. Todos são broadcast pra sala inteira
-(`io.to(salaId)`), **exceto `suaMao`**, que é privado — vai só pra
-`jogador:<id>` de quem é dona daquela mão.
+(`io.to(salaId)`), **exceto `suaMao` e `maosReveladas`**, que são privados —
+vão só pra `jogador:<id>` de cada destinatário (e cada um recebe um recorte
+diferente, no caso de `maosReveladas`).
 
 ### `listaJogadores`
 `{ salaId, jogadores: [{ nome }] }` — toda vez que a lista de espera muda.
@@ -321,6 +326,7 @@ adicionado:
 |---|---|
 | `novaRodadaIniciada` | `{ numero, cartas }` |
 | `suaMao` **(privado)** | `{ mao: string[] }` — só a mão de quem recebe |
+| `maosReveladas` **(privado)** | `{ maos: [{ jogador, mao: string[] }] }` — conjunto de mãos que ESTE jogador pode ver; ver seção "Rodada de 1 carta" abaixo |
 | `manilhaVirada` | `{ vira, viraValor }` |
 | `turnoAposta` | `{ id, jogador }` — `id` é de quem tem que mandar `apostar` agora |
 | `apostaFeita` | `{ jogador, aposta }` — só depois que a aposta foi de fato registrada (real ou timeout) |
@@ -333,6 +339,26 @@ adicionado:
 | `jogadaAutomatica` | `{ id, jogador }` — `tempoTurnoMs` estourou, o servidor jogou sozinho por ele |
 | `jogadorReconectou` | `{ id, jogador }` — voltou via `reconectar`, flag `desconectado` desligada |
 | `jogadorExpulsoPorInatividade` | `{ id, jogador }` — `limiteInatividadeMs` sem nenhuma ação real dele **ou** ele mandou `sairDaPartida`; o socket dele já saiu da room dessa sala (assento continua e vira bot, ver seção de `reconectar` acima) |
+
+### Rodada de 1 carta ("testa" / rodada cega)
+
+Quando a rodada tem só 1 carta por jogador (`cartas === 1` em
+`novaRodadaIniciada`), cada um aposta **sem saber a própria carta**, mas
+vendo a de todo mundo. O `GameController` emite `maosReveladas` logo depois
+de `cartasDistribuidas`, e a camada de socket recorta por destinatário: cada
+`jogador:<id>` recebe `{ maos }` com a mão dos **outros**, nunca a própria.
+
+`suaMao` continua sendo enviado normalmente (com o valor real da carta) — é
+o **cliente** que esconde a própria carta na UI nessa rodada (mostra virada,
+mas ela segue jogável por índice como qualquer outra). Ou seja: hoje isso
+não é anti-trapaça de verdade, é regra de exibição. Trocar por "não mandar
+`suaMao` na rodada cega" é possível depois sem mexer no formato do evento.
+
+O evento é **genérico** de propósito (`maos` é um conjunto arbitrário de
+mãos que aquele jogador pode ver) — dá pra reusar num showdown de fim de
+rodada, modo espectador ou debug sem inventar outro evento. Quem decide o
+recorte é o servidor; o `ocultarProprio` que o `GameController` passa pro
+socket não vai no fio, só controla o filtro por destinatário.
 
 ## Códigos de erro (`CodigosErro`)
 
