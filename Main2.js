@@ -201,6 +201,9 @@ socket.on('jogadoresEliminados', ({ eliminados }) => {
 socket.on('jogoFinalizado', ({ vencedor }) => {
     console.log(`\n🏆 Vencedor: ${vencedor}`);
 });
+socket.on('chatMensagem', ({ jogador, texto }) => {
+    console.log(`💬 ${jogador}: ${texto}`);
+});
 
 console.log(`\nAguardando na sala ${salaId}... (Ctrl+C para sair)`);
 await new Promise(() => {});

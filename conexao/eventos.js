@@ -13,16 +13,17 @@
 export const EventosCliente = {
     ENTRAR: 'entrar',           // { nome, senha } -> ack: { ok, nome, token }
     CADASTRAR: 'cadastrar',     // { nome, senha } -> ack: { ok, nome, token } — já autentica, sem precisar de "entrar" depois
-    CRIAR_SALA: 'criarSala',    // { numberPlayers, roundStart, randomShuffle, botNumber } -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar } — botNumber preenche o resto dos assentos com bots (ver bots/Bot.js); segundosParaIniciar != null se os bots já lotaram a sala
-    ENTRAR_SALA: 'entrarSala',  // { salaId } -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar } — segundosParaIniciar != null se esta entrada lotou a sala
+    CRIAR_SALA: 'criarSala',    // { numberPlayers, roundStart, randomShuffle, botNumber, chatAberto } -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar, chatAberto } — botNumber preenche o resto dos assentos com bots (ver bots/Bot.js); segundosParaIniciar != null se os bots já lotaram a sala; chatAberto (default false) libera o chat de texto livre da sala
+    ENTRAR_SALA: 'entrarSala',  // { salaId } -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar, chatAberto } — segundosParaIniciar != null se esta entrada lotou a sala
     LISTAR_SALAS: 'listarSalas', // {} -> ack: { ok, salas: [{ salaId, numberPlayers, jogadoresAtual }] }
     FORCAR_INICIO: 'forcarInicio', // { salaId } -> ack: { ok } — só o adm da sala, só com a sala cheia
     SAIR_SALA: 'sairSala',       // { salaId } -> ack: { ok } — só antes da partida começar
     SAIR_DA_PARTIDA: 'sairDaPartida', // { salaId } -> ack: { ok } — abandono voluntário de partida JÁ em andamento; o assento vira bot na hora (reaproveita o caminho da expulsão por inatividade)
     APOSTAR: 'apostar',          // { salaId, valor } -> ack: { ok } — valor é o número de vazas que o jogador acha que vai fazer
     JOGAR_CARTA: 'jogarCarta',   // { salaId, indice } -> ack: { ok } — indice é 0-based, posição na mão
-    RECONECTAR: 'reconectar',    // { salaId } -> ack: { ok, mao, suaVez, jogadorDaVez } — sala com partida já em andamento
+    RECONECTAR: 'reconectar',    // { salaId } -> ack: { ok, mao, suaVez, jogadorDaVez, chatAberto } — sala com partida já em andamento
     MINHA_SALA_ATIVA: 'minhaSalaAtiva', // {} -> ack: { ok, salaId: string | null } — existe uma partida em andamento em que eu ainda tenho assento? pra descobrir sem saber o salaId de antemão (ex.: depois de um refresh de página)
+    CHAT: 'chat',                // { salaId, tipo: 'aberta' | 'restrita', texto?, id? } -> ack: { ok } — 'restrita' (id do catálogo, ver conexao/chat/mensagensChat.js) sempre liberada; 'aberta' (texto livre) só se a sala foi criada com chatAberto
 };
 
 // Eventos empurrados pelo servidor sem ter sido pedidos por um ack.
@@ -48,6 +49,7 @@ export const EventosServidor = {
     JOGADA_AUTOMATICA: 'jogadaAutomatica',      // { salaId, id, jogador } — tempoTurnoMs estourou, jogou sozinho
     JOGADOR_RECONECTOU: 'jogadorReconectou',    // { salaId, id, jogador }
     JOGADOR_EXPULSO_POR_INATIVIDADE: 'jogadorExpulsoPorInatividade', // { salaId, id, jogador } — ficou limiteInatividadeMs sem agir; o socket dele já saiu da sala (assento continua, dá pra "reconectar")
+    CHAT_MENSAGEM: 'chatMensagem',              // { salaId, jogador, tipo: 'aberta' | 'restrita', id: number | null, texto } — broadcast pra sala inteira, incluindo quem enviou
 };
 
 export const CodigosErro = {
@@ -66,6 +68,8 @@ export const CodigosErro = {
     CARTA_INVALIDA: 'CARTA_INVALIDA',       // jogarCarta com índice fora da mão
     APOSTA_INVALIDA: 'APOSTA_INVALIDA',     // apostar com valor fora de [0, número de cartas da rodada]
     APOSTA_FECHA_RODADA: 'APOSTA_FECHA_RODADA', // último a apostar não pode escolher o valor que fecha a soma das apostas no número de cartas
+    CHAT_DESABILITADO: 'CHAT_DESABILITADO',   // chat 'aberta' numa sala criada sem chatAberto
+    CHAT_INVALIDO: 'CHAT_INVALIDO',           // chat com tipo desconhecido, id fora do catálogo, ou texto vazio/longo demais
     USUARIO_NAO_ENCONTRADO: 'USUARIO_NAO_ENCONTRADO', // login: nome não existe no banco
     SENHA_INCORRETA: 'SENHA_INCORRETA',               // login: nome existe, senha não bate
     CADASTRO_INVALIDO: 'CADASTRO_INVALIDO',           // cadastrar: nome/senha fora do tamanho mínimo aceito
