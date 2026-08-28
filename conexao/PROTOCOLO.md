@@ -141,6 +141,28 @@ dos casos, mas vem preenchido quando `botNumber` já lotou a sala: aí o
 handler, antes do ack — mesmo motivo de `jogadores` vir aqui.
 Erros possíveis: `NAO_IDENTIFICADO`, `CONFIGURACAO_INVALIDA`.
 
+### `partidaRapida`
+Payload: `{}`
+Pré-condição: socket já mandou `entrar`/`cadastrar`/`entrarComoConvidado`.
+Ack sucesso: mesmo formato de `criarSala`/`entrarSala` — `{ ok: true, salaId,
+numberPlayers, jogadores, segundosParaIniciar: number | null, chatAberto }`.
+Erros possíveis: `NAO_IDENTIFICADO`, mais os que `entrarSala` pode devolver
+quando cai no caminho de entrar numa sala já existente (`NOME_INVALIDO` se o
+nome já estiver em uso nela — caso raro, dois jogadores com o mesmo nome
+batendo na fila ao mesmo tempo).
+
+Fila compartilhada de sala com config default (mesmo resultado de
+`criarSala` sem parâmetros nenhum — 4 jogadores, 3 cartas na primeira
+rodada, sem bots, chat fechado): quem chama primeiro cria essa sala; todo
+mundo que chamar depois, enquanto ela continuar aberta (não cheia, não
+iniciada), entra nela em vez de criar uma nova — não precisa saber o
+`salaId` de antemão. Assim que ela lota (e a partida é agendada, igual
+qualquer `entrarSala`/`criarSala` que lote), a próxima chamada cria outra
+sala do zero e vira a nova "sala da fila". O jeito manual de criar sala
+(`criarSala` com config própria) continua existindo do lado do cliente sem
+nenhuma mudança — `partidaRapida` é só um atalho por cima do mesmo
+`SalaManager`, não substitui nada.
+
 ### `entrarSala`
 Payload: `{ salaId: string }`
 Pré-condição: socket já mandou `entrar` com sucesso.
