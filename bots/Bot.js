@@ -9,17 +9,18 @@
 // nunca se conecta, nunca desconecta e nunca chama jogarCarta/apostar via
 // protocolo (não existe socket associado pra isso).
 import { Player } from '../game/Player.js';
+import { proximoIdEfemero } from '../game/idEfemero.js';
 
-// Id negativo e contador só deste módulo: garante que nunca colide com um
-// id de conta de verdade (autoincrement positivo do banco, ver
-// conexao/db.js), mesmo com vários bots em várias salas ao mesmo tempo.
+// Só pro nome default "Bot N" — o id em si vem de idEfemero.js, uma fonte
+// única compartilhada com conexao/convidado.js (ver o comentário lá pra
+// entender por que não pode ser um contador só deste módulo).
 let proximoNumero = 0;
 
 export class Bot extends Player {
     constructor(nome) {
         proximoNumero += 1;
         super(nome ?? `Bot ${proximoNumero}`, null);
-        this.id = -proximoNumero;
+        this.id = proximoIdEfemero();
         this.bot = true;
     }
 }

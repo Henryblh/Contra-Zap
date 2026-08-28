@@ -71,6 +71,11 @@ game/              -> regras do jogo (baralho, cartas, mesa, rodada, jogadores),
                       não sabe nada sobre servidor, socket ou front-end
   GameController.js  -> orquestra uma partida inteira e emite eventos (mão distribuída,
                          carta jogada, vaza fechada, etc.)
+  idEfemero.js        -> fonte única de ids negativos pra Player sem linha no banco
+                         (compartilhada por bots/Bot.js e conexao/convidado.js)
+bots/              -> jogadores controlados pelo computador
+  Bot.js              -> um "jogador" sem socket (id negativo, nunca desconecta)
+  BotBrain.js         -> decide jogada/aposta automática — hoje um placeholder burro
 conexao/           -> camada de sala/rede, separada das regras do jogo
   eventos.js          -> vocabulário do protocolo (nomes de evento, códigos de erro)
   PROTOCOLO.md        -> contrato dos eventos socket.io (payloads, fluxo, erros)
@@ -78,8 +83,10 @@ conexao/           -> camada de sala/rede, separada das regras do jogo
   jwt.js              -> emite e verifica o token de sessão (JWT assinado, HS256)
   login.js            -> autentica nome/senha contra o banco e emite token de sessão
   cadastro.js         -> cria conta nova (nome/senha) e já autentica, mesmo formato do login
+  convidado.js        -> login "convidado": só nome, Player só em memória (id negativo), nunca grava no banco
   SalaManager.js      -> cria salas e valida entrada de jogadores (sem saber de socket.io)
   socketServer.js     -> liga o protocolo a sockets de verdade (única peça que conhece socket.io)
+  chat/               -> validação e catálogo de mensagens do chat de sala
 public/app/        -> código-fonte do front-end (React + Vite)
   src/App.jsx         -> componente raiz
   src/socket.js       -> conexão socket.io-client com o back-end
@@ -105,13 +112,26 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
 
 - ✅ Motor de jogo completo: apostas, vazas, manilha, eliminação por hp.
 - ✅ Autenticação (login/cadastro com senha em hash) e sessão via JWT.
+- ✅ Login em etapas, estilo Pokémon Showdown: digita só o nome primeiro
+  (`verificarNome`); se já existe conta, pede senha pra confirmar identidade
+  (`entrar`); se não existe, pergunta se quer registrar (`cadastrar`) ou
+  seguir sem conta como **convidado** (`entrarComoConvidado` — Player só em
+  memória, id negativo, nunca grava no banco). Não existe botão de "guest"
+  solto — é sempre consequência de responder "não" à oferta de cadastro.
 - ✅ Salas multiplayer ponta a ponta: criar, entrar, listar, sair, início
   automático quando lota (ou forçado pelo dono).
+- ✅ **Partida rápida**: fila compartilhada de sala com config default — quem
+  clica primeiro cria, quem clica depois entra na mesma até ela lotar; o
+  jeito manual de criar sala continua existindo do lado do cliente.
 - ✅ Partida real via socket.io: jogadas, mão privada por jogador, vazas,
   placar, tudo em tempo real.
 - ✅ Timeout de turno com jogada automática (placeholder simples) + jogador
   expulso por inatividade de verdade (várias faltas seguidas, não uma só) +
   reconexão de quem caiu no meio da partida, exatamente do mesmo jeito.
+- ✅ **Jogar de novo**: quando a partida termina, o dono da sala pode criar
+  uma sala nova com a mesma config (incluindo o mesmo número de bots) e
+  ficar esperando nela; quem mais estava na sala antiga recebe um convite
+  (sim entra na sala nova, não sai pro menu).
 - ✅ Estrutura de bots pronta (pasta `bots/`, `botNumber` na criação de sala,
   campo pra escolher no lobby): um bot entra igual um jogador, sem socket, e
   assume o assento de um jogador de verdade quando ele é expulso por
@@ -134,28 +154,14 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
   placeholder burro (sempre a última carta, sempre aposta 1). A estrutura já
   tá pronta pra trocar isso sem mexer em mais nada; o plano é evoluir pra uma
   estratégia melhor e, mais pra frente, treinar com ML.
-- **Botão de "jogar de novo" quando alguém vencer** — hoje `jogoFinalizado`
-  é o fim da linha: não existe fluxo pra recomeçar a mesma sala nem pra
-  descartá-la. Precisa de: um evento de protocolo novo (algo como
-  `jogarNovamente`, só o adm ou todo mundo?), decidir se reaproveita a
-  sala/jogadores ou cria uma nova, e o botão em `Partida.jsx` pra disparar
-  isso.
 - **Limpar sala depois que a partida termina** — hoje uma `Sala` finalizada
   fica pra sempre no `Map` do `SalaManager` (só some da listagem, não da
-  memória). Combinar isso com o item acima: sala vira descartável quando
-  não tiver mais ninguém nela depois do fim de jogo, ou depois de um tempo
-  sem ninguém pedir revanche.
+  memória) — e agora que existe "jogar de novo", cada revanche cria uma sala
+  nova sem nunca descartar a antiga, piorando o acúmulo. Vira descartável
+  quando não tiver mais ninguém nela, ou depois de um tempo sem ninguém
+  pedir revanche.
 - Subir o servidor num ambiente de verdade, com sockets web funcionando fora
   da rede local (hoje só foi testado em `localhost`).
-
-*ranking: tentar juntar pessoas de um nível similar durante sala ranqueadas, ou casuais
-
-Placar: Algum método de quantificar performance do jogador
-
-
-*jogadores desconectados a mais de x minutos abrem a sala para jogadores reconectadrem 
-
-
 
 ### Sugestões pra deixar o motor redondo antes de investir no front
 
@@ -171,3 +177,32 @@ Placar: Algum método de quantificar performance do jogador
   (`numberPlayers: 2, botNumber: 1` com só você) — bom caso de teste pra
   validar o motor inteiro sem precisar de mais gente, vale ter isso em mente
   ao testar.
+- O JWT emitido em `entrar`/`cadastrar`/`entrarComoConvidado` nunca é
+  validado em produção (`validarToken`, em `login.js`, só é chamado no
+  teste) — e o front nem guarda o token (de propósito, ver `socket.js`).
+  Hoje ele não serve pra nada além de existir; se a ideia é reaproveitar
+  sessão depois de uma queda de conexão sem pedir nome/senha de novo, esse é
+  o gancho certo.
+- O ack de `reconectar` não devolve `jogadores` nem `adm` — só mão/vez.
+  Efeito colateral real: se o dono de uma sala der F5 depois que a partida já
+  acabou, o botão "Jogar de novo" pode não aparecer pra ele, porque o
+  cliente nunca descobre que ele é adm por esse caminho.
+- O cooldown de chat (`CHAT_COOLDOWN_MS`) só existe no front — o servidor
+  aceita qualquer volume de `chat` que passe na validação de tipo/tamanho.
+  Um cliente customizado pode spammar a sala inteira sem limite nenhum.
+- Ranking: tentar juntar pessoas de nível similar em salas ranqueadas
+  (depende de `Player.rate` estar vivo, ver acima), separado de salas
+  casuais sem esse pareamento.
+- Placar/histórico: algum método de quantificar performance do jogador ao
+  longo de várias partidas, não só o hp da partida atual.
+- Jogadores desconectados há mais de X minutos (não só expulsos por
+  inatividade dentro de uma partida) liberando a sala/vaga pra outra pessoa
+  entrar, em vez de ficar reservada indefinidamente esperando reconexão.
+- `socket.js` não escuta `disconnect`/`reconnect` do socket.io-client nem dá
+  feedback visual de conexão perdida — se a rede cair no meio de uma sessão,
+  o jogador só percebe quando alguma ação falhar.
+- Nenhuma partida/rodada é persistida — `banco.sqlite` só guarda conta
+  (nome + hash de senha). Todo o resto (salas, placar, quem jogou o quê)
+  vive só na memória do processo e desaparece num restart.
+- Carta é só texto (`[Q de Copas]`) — bom pra testar regras, mas sem nenhum
+  componente visual de carta ainda no front.
