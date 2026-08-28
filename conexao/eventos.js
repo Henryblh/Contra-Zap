@@ -22,6 +22,7 @@ export const EventosCliente = {
     FORCAR_INICIO: 'forcarInicio', // { salaId } -> ack: { ok } — só o adm da sala, só com a sala cheia
     SAIR_SALA: 'sairSala',       // { salaId } -> ack: { ok } — só antes da partida começar
     SAIR_DA_PARTIDA: 'sairDaPartida', // { salaId } -> ack: { ok } — abandono voluntário de partida JÁ em andamento; o assento vira bot na hora (reaproveita o caminho da expulsão por inatividade)
+    JOGAR_DE_NOVO: 'jogarDeNovo', // { salaId } -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar, chatAberto } — só o adm da sala TERMINADA (`salaId` é a sala antiga); cria uma sala nova com a mesma config e avisa quem mais estava lá (ver EventosServidor.CONVITE_REVANCHE)
     APOSTAR: 'apostar',          // { salaId, valor } -> ack: { ok } — valor é o número de vazas que o jogador acha que vai fazer
     JOGAR_CARTA: 'jogarCarta',   // { salaId, indice } -> ack: { ok } — indice é 0-based, posição na mão
     RECONECTAR: 'reconectar',    // { salaId } -> ack: { ok, mao, suaVez, jogadorDaVez, chatAberto } — sala com partida já em andamento
@@ -52,6 +53,7 @@ export const EventosServidor = {
     JOGADA_AUTOMATICA: 'jogadaAutomatica',      // { salaId, id, jogador } — tempoTurnoMs estourou, jogou sozinho
     JOGADOR_RECONECTOU: 'jogadorReconectou',    // { salaId, id, jogador }
     JOGADOR_EXPULSO_POR_INATIVIDADE: 'jogadorExpulsoPorInatividade', // { salaId, id, jogador } — ficou limiteInatividadeMs sem agir; o socket dele já saiu da sala (assento continua, dá pra "reconectar")
+    CONVITE_REVANCHE: 'convidadoParaRevanche', // { salaId, novaSalaId, jogador } — broadcast na sala TERMINADA (salaId) quando o adm dela chama jogarDeNovo; jogador é o nome de quem chamou, novaSalaId é onde entrar (via entrarSala normal) se aceitar
     CHAT_MENSAGEM: 'chatMensagem',              // { salaId, jogador, tipo: 'aberta' | 'restrita', id: number | null, texto } — broadcast pra sala inteira, incluindo quem enviou
 };
 
@@ -64,6 +66,7 @@ export const CodigosErro = {
     SALA_NAO_CHEIA: 'SALA_NAO_CHEIA',       // forcarInicio antes da sala lotar
     SALA_JA_INICIADA: 'SALA_JA_INICIADA',
     SALA_NAO_INICIADA: 'SALA_NAO_INICIADA', // jogarCarta numa sala cuja partida ainda não começou
+    SALA_NAO_FINALIZADA: 'SALA_NAO_FINALIZADA', // jogarDeNovo antes de jogoFinalizado disparar na sala
     JA_ESTA_NA_SALA: 'JA_ESTA_NA_SALA',
     NAO_ESTA_NA_SALA: 'NAO_ESTA_NA_SALA',   // sairSala por quem não está (mais) nessa sala
     NAO_AUTORIZADO: 'NAO_AUTORIZADO',       // forcarInicio por quem não é o adm da sala

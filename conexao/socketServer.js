@@ -208,6 +208,39 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
             });
         });
 
+        socket.on(EventosCliente.JOGAR_DE_NOVO, ({ salaId } = {}, ack) => {
+            responder(ack, () => {
+                const player = exigirJogador();
+                const novaSala = salaManager.jogarDeNovo(salaId, player, (salaCriada) => {
+                    socket.join(salaCriada.salaId);
+                    salaPorSocket.set(socket.id, salaCriada.salaId);
+                    ligarControllerASala(io, salaCriada, socketPorJogador, salaPorSocket);
+                });
+                // Quem chamou jogarDeNovo sai de verdade da sala que
+                // terminou — o socket não deve mais receber nada dela
+                // (nem o próprio convidadoParaRevanche abaixo, que é pra
+                // quem ficou). salaPorSocket já foi sobrescrito pra apontar
+                // pra sala nova, dentro do aoNascer acima.
+                socket.leave(salaId);
+                notificarSala(io, novaSala);
+                // Avisa quem mais estava na sala que terminou (broadcast na
+                // room antiga — ninguém saiu dela ainda, exceto quem já tinha
+                // sido expulso por inatividade antes do fim da partida).
+                io.to(salaId).emit(EventosServidor.CONVITE_REVANCHE, {
+                    salaId,
+                    novaSalaId: novaSala.salaId,
+                    jogador: player.nome,
+                });
+                return {
+                    salaId: novaSala.salaId,
+                    numberPlayers: novaSala.numberPlayers,
+                    jogadores: resumoJogadores(novaSala),
+                    segundosParaIniciar: novaSala.controller.inicioAgendado ? novaSala.controller.segundosParaIniciar : null,
+                    chatAberto: novaSala.chatAberto,
+                };
+            });
+        });
+
         socket.on(EventosCliente.APOSTAR, ({ salaId, valor } = {}, ack) => {
             responder(ack, () => {
                 const player = exigirJogador();
@@ -296,7 +329,7 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
 }
 
 function resumoJogadores(sala) {
-    return sala.jogadores.map(jogador => ({ nome: jogador.nome }));
+    return sala.jogadores.map(jogador => ({ nome: jogador.nome, adm: jogador.adm }));
 }
 
 function notificarSala(io, sala) {

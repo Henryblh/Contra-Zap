@@ -57,6 +57,18 @@ class Sala {
         // chat de texto livre (tipo 'aberta'); as mensagens prontas ('restrita')
         // não dependem dele. Fixo na criação, não muda depois.
         this.chatAberto = config.chatAberto ?? false;
+        // Config completa usada pra criar esta sala (incluindo botNumber, que
+        // o GameController nem vê — só usado no momento de encher a sala com
+        // bots). Guardada só pra "jogar de novo" (ver SalaManager.jogarDeNovo)
+        // poder recriar uma sala idêntica sem precisar que o chamador lembre
+        // dos valores originais.
+        this.configOriginal = {
+            numberPlayers: config.numberPlayers,
+            roundStart: config.roundStart,
+            randomShuffle: config.randomShuffle,
+            botNumber: config.botNumber ?? 0,
+            chatAberto: this.chatAberto,
+        };
     }
 
     get numberPlayers() { return this.controller.numberPlayers; }
@@ -112,6 +124,7 @@ export class SalaManager {
             numberPlayers,
             roundStart,
             randomShuffle: config.randomShuffle ?? true,
+            botNumber,
             chatAberto,
             tempoTurnoMs: this.tempoTurnoMs,
             limiteInatividadeMs: this.limiteInatividadeMs,
@@ -159,6 +172,29 @@ export class SalaManager {
         const sala = this.criarSala(player, {}, aoNascer);
         this.salaFilaRapidaId = sala.salaId;
         return { sala, criada: true };
+    }
+
+    // "Jogar de novo": só quem é o adm da sala que TERMINOU (jogoFinalizado
+    // já disparou, ver GameController.finalizada) pode chamar. Cria uma sala
+    // nova com exatamente a mesma config da que terminou (configOriginal, ver
+    // Sala acima) e devolve ela já com o próprio dono dentro — mesmo
+    // criarSala de sempre, só com a config vindo da sala antiga em vez do
+    // cliente. Quem mais estava na sala antiga é avisado por fora daqui (ver
+    // EventosServidor.CONVITE_REVANCHE em socketServer.js) — este método só
+    // cuida de criar a sala nova.
+    jogarDeNovo(salaAntigaId, player, aoNascer) {
+        const salaAntiga = this.salas.get(salaAntigaId);
+        if (!salaAntiga) {
+            throw new ErroSala(CodigosErro.SALA_NAO_ENCONTRADA, `Sala "${salaAntigaId}" não existe.`);
+        }
+        if (!salaAntiga.controller.finalizada) {
+            throw new ErroSala(CodigosErro.SALA_NAO_FINALIZADA, 'A partida desta sala ainda não terminou.');
+        }
+        if (!salaAntiga.controller.jogadorEhAdm(player.id)) {
+            throw new ErroSala(CodigosErro.NAO_AUTORIZADO, 'Só quem criou a sala pode chamar pra jogar de novo.');
+        }
+
+        return this.criarSala(player, salaAntiga.configOriginal, aoNascer);
     }
 
     // Coloca um jogador numa sala existente, validando as regras de entrada.
