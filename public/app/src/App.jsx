@@ -38,6 +38,14 @@ export default function App() {
         return () => { cancelado = true; };
     }, [player]);
 
+    // Compartilhado entre Lobby (criar/entrar numa sala normal) e Partida
+    // (aceitar um convite de revanche — ver convidadoParaRevanche): as duas
+    // situações terminam do mesmo jeito, numa sala de espera nova.
+    function entrarNaSala(salaId, jogadoresIniciais, segundosParaIniciar, chatAberto) {
+        setSalaParaReconectar(null);
+        setSala({ salaId, jogadoresIniciais, segundosParaIniciar, chatAberto });
+    }
+
     if (!player) {
         return <Login onAutenticado={setPlayer} />;
     }
@@ -46,10 +54,7 @@ export default function App() {
             <Lobby
                 meuNome={player.nome}
                 salaParaReconectar={salaParaReconectar}
-                onEntrouNaSala={(salaId, jogadoresIniciais, segundosParaIniciar, chatAberto) => {
-                    setSalaParaReconectar(null);
-                    setSala({ salaId, jogadoresIniciais, segundosParaIniciar, chatAberto });
-                }}
+                onEntrouNaSala={entrarNaSala}
                 onReconectou={(salaId, reconexao) => {
                     setSalaParaReconectar(null);
                     setSala({ salaId, reconexao });
@@ -70,6 +75,7 @@ export default function App() {
                 setSalaParaReconectar(salaId);
                 setSala(null);
             }}
+            onEntrouNaSala={entrarNaSala}
         />
     );
 }

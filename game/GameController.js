@@ -43,6 +43,11 @@ export class GameController extends EventEmitter {
         this._segundosParaIniciar = null;
         this._jogadaEsperada = null;
         this._apostaEsperada = null;
+        // true só depois que jogoFinalizado dispara (ver _avancarOuFinalizar)
+        // — diferente de `game !== null` (que já é true desde o início da
+        // partida), é o que permite distinguir "partida em andamento" de
+        // "partida acabou" de fora (ver SalaManager.jogarDeNovo).
+        this._finalizada = false;
     }
 
     // Início já agendado (sala lotou) mas partida ainda não começou — o
@@ -51,6 +56,7 @@ export class GameController extends EventEmitter {
     // não há nada agendado.
     get inicioAgendado() { return this._timerInicio !== null; }
     get segundosParaIniciar() { return this._segundosParaIniciar; }
+    get finalizada() { return this._finalizada; }
 
     // Sala de espera: transforma o Player que entrou num PlayerGame e guarda
     // na lista até a partida começar. Ordem de chegada é a própria posição
@@ -534,6 +540,7 @@ export class GameController extends EventEmitter {
     async _avancarOuFinalizar() {
         const vivos = this.game.gameOrder.filter(j => j.hp > 0);
         if (vivos.length === 1) {
+            this._finalizada = true;
             this.emit('jogoFinalizado', { vencedor: vivos[0].nome });
             return;
         }
@@ -544,6 +551,7 @@ export class GameController extends EventEmitter {
                 const diferenca = Math.abs(jogador.aposta - jogador.steak);
                 return diferenca < melhor.diferenca ? { jogador, diferenca } : melhor;
             }, { jogador: this.rodada.gameOrder[0], diferenca: Math.abs(this.rodada.gameOrder[0].aposta - this.rodada.gameOrder[0].steak) });
+            this._finalizada = true;
             this.emit('jogoFinalizado', { vencedor: vencedor.jogador.nome });
             return;
         }

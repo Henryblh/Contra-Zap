@@ -15,7 +15,7 @@ import { MENSAGENS_PRONTAS, CHAT_COOLDOWN_MS } from '../chatMensagens.js';
 // duas frentes (aposta e carta) nunca vêm preenchidas ao mesmo tempo — no
 // máximo uma delas reflete a espera de verdade, a outra some sozinha assim
 // que a fase seguinte começar de verdade.
-export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, reconexao, chatAberto, meuNome, onSairDaSala, onSairDaPartida }) {
+export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, reconexao, chatAberto, meuNome, onSairDaSala, onSairDaPartida, onEntrouNaSala }) {
     // Semeado do ack de criarSala/entrarSala, não do broadcast de
     // listaJogadores — o primeiro broadcast sai antes desta tela existir
     // (e o listener abaixo com ele), então dependeria de um evento que já
@@ -43,6 +43,11 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
     const [vira, setVira] = useState(null);
     const [ultimoPlacar, setUltimoPlacar] = useState([]);
     const [vencedor, setVencedor] = useState(null);
+    // { novaSalaId, jogador } quando o adm da sala chama jogarDeNovo depois
+    // do fim da partida — ver convidadoParaRevanche em PROTOCOLO.md. null
+    // enquanto ninguém chamou (ou depois que este jogador já respondeu).
+    const [conviteRevanche, setConviteRevanche] = useState(null);
+    const [criandoRevanche, setCriandoRevanche] = useState(false);
     const [log, setLog] = useState([]);
     const [erro, setErro] = useState(null);
     // Espelha apostaFeita/jogadoresEliminados num formato fácil de olhar na
@@ -164,6 +169,15 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
                 if (!daSala(p)) return;
                 setVencedor(p.vencedor);
                 registrar(`🏆 Vencedor: ${p.vencedor}`);
+            },
+            convidadoParaRevanche(p) {
+                if (!daSala(p)) return;
+                // Sou eu quem chamou jogarDeNovo — já sei pelo ack, e já vou
+                // transicionar pra sala nova por ele; não preciso do meu
+                // próprio convite (o broadcast inclui todo mundo da sala,
+                // inclusive quem chamou).
+                if (p.jogador === meuNome) return;
+                setConviteRevanche({ novaSalaId: p.novaSalaId, jogador: p.jogador });
             },
             jogadaAutomatica(p) {
                 if (!daSala(p)) return;
@@ -291,6 +305,34 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
         }
     }
 
+    // Só o adm vê o botão que chama isto (ver souDono mais abaixo) — cria
+    // uma sala nova com a mesma config da que acabou e já entra nela; quem
+    // mais estava aqui recebe o convite (convidadoParaRevanche) por fora.
+    async function jogarDeNovo() {
+        setErro(null);
+        setCriandoRevanche(true);
+        try {
+            const resposta = await chamar('jogarDeNovo', { salaId });
+            onEntrouNaSala(resposta.salaId, resposta.jogadores, resposta.segundosParaIniciar, resposta.chatAberto);
+        } catch (erroDaChamada) {
+            setErro(erroDaChamada.message);
+            setCriandoRevanche(false);
+        }
+    }
+
+    // Sim: entra na sala nova igual um entrarSala normal (o convite não é
+    // mais que isso — o adm já criou a sala, o resto do fluxo é o de sempre).
+    async function aceitarConviteRevanche() {
+        setErro(null);
+        try {
+            const resposta = await chamar('entrarSala', { salaId: conviteRevanche.novaSalaId });
+            onEntrouNaSala(conviteRevanche.novaSalaId, resposta.jogadores, resposta.segundosParaIniciar, resposta.chatAberto);
+        } catch (erroDaChamada) {
+            setErro(erroDaChamada.message);
+            setConviteRevanche(null);
+        }
+    }
+
     // Botão de sair é sempre uma opção, antes ou depois da partida começar —
     // só muda o que significa "sair". Antes: sairSala de verdade (tira o
     // assento, ver PROTOCOLO.md). Depois: sairDaPartida — o assento vira bot
@@ -323,6 +365,7 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
 
     const souEuNaVez = iniciada && jogadorDaVez === meuNome && !vencedor;
     const souEuNaVezDaAposta = iniciada && jogadorDaVezAposta === meuNome && !vencedor;
+    const souDono = jogadores.find((j) => j.nome === meuNome)?.adm === true;
     // Rodada de 1 carta: a própria carta fica virada (o servidor manda o
     // valor em suaMao, mas aqui a gente não mostra — a mão continua jogável
     // normalmente por índice). As cartas dos outros vêm em maosReveladas.
@@ -423,6 +466,24 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
                     </div>
 
                     <h2>{vencedor ? `Vencedor: ${vencedor}` : `Vez de: ${jogadorDaVez ?? '...'}`}</h2>
+
+                    {vencedor && souDono && (
+                        <div className="botoes">
+                            <button type="button" onClick={jogarDeNovo} disabled={criandoRevanche}>
+                                {criandoRevanche ? 'Criando sala...' : 'Jogar de novo'}
+                            </button>
+                        </div>
+                    )}
+
+                    {vencedor && conviteRevanche && (
+                        <section>
+                            <p>{conviteRevanche.jogador} está te chamando pra outra partida.</p>
+                            <div className="botoes">
+                                <button type="button" onClick={aceitarConviteRevanche}>Sim</button>
+                                <button type="button" onClick={sair} className="secundario">Não</button>
+                            </div>
+                        </section>
+                    )}
 
                     <h3>Mesa</h3>
                     <div className="mesa">

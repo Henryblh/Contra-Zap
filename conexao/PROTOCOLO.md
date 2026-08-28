@@ -225,6 +225,27 @@ Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`,
 `SALA_NAO_INICIADA` (a partida ainda não começou — use `sairSala`),
 `NAO_ESTA_NA_SALA` (não faz parte dessa partida).
 
+### `jogarDeNovo`
+Payload: `{ salaId: string }` — a sala que **terminou** (`jogoFinalizado` já
+disparou nela).
+Pré-condição: socket já mandou `entrar`/`cadastrar`/`entrarComoConvidado`; a
+partida dessa sala precisa ter terminado de verdade (não só começado — ver
+`GameController.finalizada`); só quem criou a sala original (adm) pode
+chamar.
+Ack sucesso: mesmo formato de `criarSala`/`entrarSala` — `{ ok: true,
+salaId, numberPlayers, jogadores, segundosParaIniciar: number | null,
+chatAberto }`, só que `salaId` aqui já é o da sala **nova**. A sala nova
+nasce com exatamente a mesma config da que terminou (`numberPlayers`,
+`roundStart`, `randomShuffle`, `botNumber`, `chatAberto`) e o adm já entra
+nela, do mesmo jeito que `criarSala` — ela fica esperando gente lotar, igual
+qualquer sala nova.
+Além do ack, todo mundo que ainda estava na sala antiga (broadcast em
+`salaId`, a sala que terminou) recebe `convidadoParaRevanche` com o
+`salaId` da sala nova — ver seção de eventos do servidor abaixo.
+Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`,
+`SALA_NAO_FINALIZADA` (a partida dessa sala ainda não acabou),
+`NAO_AUTORIZADO` (quem chamou não é o adm da sala original).
+
 ### `apostar`
 Payload: `{ salaId: string, valor: number }` — `valor` é o número de vazas
 que o jogador acha que vai fazer nessa rodada.
@@ -426,6 +447,17 @@ adicionado:
 | `jogadorReconectou` | `{ id, jogador }` — voltou via `reconectar`, flag `desconectado` desligada |
 | `jogadorExpulsoPorInatividade` | `{ id, jogador }` — `limiteInatividadeMs` sem nenhuma ação real dele **ou** ele mandou `sairDaPartida`; o socket dele já saiu da room dessa sala (assento continua e vira bot, ver seção de `reconectar` acima) |
 
+### `convidadoParaRevanche`
+`{ salaId, novaSalaId, jogador }` — broadcast na sala que **terminou**
+(`salaId`) quando o adm dela chama `jogarDeNovo`. `jogador` é o nome de quem
+chamou (inclusive o próprio remetente recebe — o cliente ignora quando
+`jogador === meuNome`, já que ele mesmo já sabe pelo ack de `jogarDeNovo`).
+Quem recebe decide: **sim**, manda um `entrarSala` normal com
+`salaId: novaSalaId`; **não**, sai da sala que terminou (mesmo caminho de
+`sairDaPartida` — ver seção de `jogarCarta`/timeout acima). Não existe um
+evento de resposta dedicado: as duas opções só reusam eventos que já
+existem.
+
 ### Rodada de 1 carta ("testa" / rodada cega)
 
 Quando a rodada tem só 1 carta por jogador (`cartas === 1` em
@@ -477,6 +509,7 @@ igual na sala de espera e na partida.
 | `SALA_NAO_CHEIA` | `forcarInicio` antes da sala lotar |
 | `SALA_JA_INICIADA` | `entrarSala`/`forcarInicio`/`sairSala` numa sala cuja partida já começou |
 | `SALA_NAO_INICIADA` | `jogarCarta`/`reconectar` numa sala cuja partida ainda não começou |
+| `SALA_NAO_FINALIZADA` | `jogarDeNovo` numa sala cuja partida ainda não terminou |
 | `JA_ESTA_NA_SALA` | `entrarSala` com o mesmo jogador (mesmo id de sessão) já presente |
 | `NAO_ESTA_NA_SALA` | `sairSala` por quem não está (mais) naquela sala; `reconectar`/`chat` por quem não faz parte da partida/sala |
 | `NAO_AUTORIZADO` | `forcarInicio` por quem não é o adm da sala |

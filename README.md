@@ -147,26 +147,13 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
   sem ninguém pedir revanche.
 - Subir o servidor num ambiente de verdade, com sockets web funcionando fora
   da rede local (hoje só foi testado em `localhost`).
-- Debugging geral: testar cenários de borda em produção/rede real antes de
-  considerar estável.
-
-- o player recebe a carta dos outro ???????
 
 *ranking: tentar juntar pessoas de um nível similar durante sala ranqueadas, ou casuais
 
-*Quickplay: Sistema de em uma fila para criação de salas e entrar em salas automaticamente com base nas default settings
-
 Placar: Algum método de quantificar performance do jogador
-
-Guest. forma de jogardor conseguir acessar o sistema como um jogador sem login aonde ficará sem nome nem senha um jogador temporário
-
 
 
 *jogadores desconectados a mais de x minutos abrem a sala para jogadores reconectadrem 
-
-*chat
-
-primeira rodada de verdade 
 
 
 
