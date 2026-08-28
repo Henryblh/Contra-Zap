@@ -170,3 +170,80 @@ button.secundario {
     white-space: pre-wrap;
     word-break: break-word;
 }
+
+/* Tela de partida: chat fixo à esquerda + o cartão do jogo à direita. O
+   bloco transborda o #root (720px) pros lados até onde a viewport deixar. */
+.partida-layout {
+    display: flex;
+    align-items: flex-start;
+    gap: 16px;
+    width: min(1080px, 100vw - 24px);
+    position: relative;
+    left: 50%;
+    transform: translateX(-50%);
+}
+
+.partida-layout > .cartao {
+    flex: 1 1 auto;
+    min-width: 0;
+}
+
+.chat-painel {
+    flex: 0 0 200px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    position: sticky;
+    top: 24px;
+}
+
+.chat-painel h3 { margin: 0; }
+
+.chat-prontas {
+    display: flex;
+    flex-direction: column;
+    gap: 6px;
+}
+
+.chat-prontas button {
+    width: 100%;
+    text-align: left;
+    font-size: 13px;
+}
+
+.chat-feed {
+    border: 1px solid var(--borda);
+    border-radius: 6px;
+    background: #0f1015;
+    padding: 8px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    height: 200px;
+    overflow-y: auto;
+    font-size: 13px;
+}
+
+.chat-msg { word-break: break-word; }
+
+.chat-livre {
+    display: flex;
+    gap: 6px;
+}
+
+.chat-livre input { flex: 1 1 auto; min-width: 0; }
+
+@media (max-width: 860px) {
+    .partida-layout {
+        flex-direction: column;
+        width: 100%;
+        left: 0;
+        transform: none;
+    }
+    .chat-painel {
+        flex-basis: auto;
+        width: 100%;
+        position: static;
+    }
+    .chat-feed { height: 140px; }
+}

@@ -21,7 +21,7 @@ const NUMERO_JOGADORES_MIN = 2;
 const NUMERO_JOGADORES_MAX = 6;
 const TEMPO_ESPERA_INICIO_MS_PADRAO = 15_000;
 
-function validarConfig({ numberPlayers, roundStart, botNumber }) {
+function validarConfig({ numberPlayers, roundStart, botNumber, chatAberto }) {
     if (!Number.isInteger(numberPlayers) || numberPlayers < NUMERO_JOGADORES_MIN || numberPlayers > NUMERO_JOGADORES_MAX) {
         throw new ErroSala(
             CodigosErro.CONFIGURACAO_INVALIDA,
@@ -40,6 +40,9 @@ function validarConfig({ numberPlayers, roundStart, botNumber }) {
             `botNumber deve ser um número inteiro entre 0 e ${numberPlayers - 1}.`
         );
     }
+    if (typeof chatAberto !== 'boolean') {
+        throw new ErroSala(CodigosErro.CONFIGURACAO_INVALIDA, 'chatAberto deve ser true ou false.');
+    }
 }
 
 // Uma sala = um GameController (que já guarda seus próprios jogadores/config
@@ -50,6 +53,10 @@ class Sala {
     constructor(salaId, config) {
         this.salaId = salaId;
         this.controller = new GameController(config);
+        // Config de sala, não de jogo — o GameController nem vê isso. Libera o
+        // chat de texto livre (tipo 'aberta'); as mensagens prontas ('restrita')
+        // não dependem dele. Fixo na criação, não muda depois.
+        this.chatAberto = config.chatAberto ?? false;
     }
 
     get numberPlayers() { return this.controller.numberPlayers; }
@@ -92,13 +99,15 @@ export class SalaManager {
         const numberPlayers = config.numberPlayers ?? 4;
         const roundStart = config.roundStart ?? 3;
         const botNumber = config.botNumber ?? 0;
-        validarConfig({ numberPlayers, roundStart, botNumber });
+        const chatAberto = config.chatAberto ?? false;
+        validarConfig({ numberPlayers, roundStart, botNumber, chatAberto });
 
         const salaId = this._gerarSalaId();
         const sala = new Sala(salaId, {
             numberPlayers,
             roundStart,
             randomShuffle: config.randomShuffle ?? true,
+            chatAberto,
             tempoTurnoMs: this.tempoTurnoMs,
             limiteInatividadeMs: this.limiteInatividadeMs,
             atrasoBotMs: this.atrasoBotMs,
@@ -299,6 +308,7 @@ export class SalaManager {
                 salaId: sala.salaId,
                 numberPlayers: sala.numberPlayers,
                 jogadoresAtual: sala.jogadores.length,
+                chatAberto: sala.chatAberto,
             }));
     }
 

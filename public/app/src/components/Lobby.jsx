@@ -11,6 +11,7 @@ export default function Lobby({ meuNome, salaParaReconectar, onEntrouNaSala, onR
     const [numberPlayers, setNumberPlayers] = useState(4);
     const [roundStart, setRoundStart] = useState(3);
     const [botNumber, setBotNumber] = useState(0);
+    const [chatAberto, setChatAberto] = useState(false);
     const [reconectando, setReconectando] = useState(false);
     const [erro, setErro] = useState(null);
 
@@ -38,12 +39,13 @@ export default function Lobby({ meuNome, salaParaReconectar, onEntrouNaSala, onR
                 numberPlayers: Number(numberPlayers),
                 roundStart: Number(roundStart),
                 botNumber: Number(botNumber),
+                chatAberto,
             });
             // O ack já traz o roster inicial (não só o broadcast de
             // listaJogadores) — a tela da sala só monta depois disso, então
             // dependeria de um broadcast que já passou. Mesma coisa pro
             // segundosParaIniciar quando os bots já lotaram a sala.
-            onEntrouNaSala(resposta.salaId, resposta.jogadores, resposta.segundosParaIniciar);
+            onEntrouNaSala(resposta.salaId, resposta.jogadores, resposta.segundosParaIniciar, resposta.chatAberto);
         } catch (erroDaChamada) {
             setErro(erroDaChamada.message);
         }
@@ -53,7 +55,7 @@ export default function Lobby({ meuNome, salaParaReconectar, onEntrouNaSala, onR
         setErro(null);
         try {
             const resposta = await chamar('entrarSala', { salaId });
-            onEntrouNaSala(salaId, resposta.jogadores, resposta.segundosParaIniciar);
+            onEntrouNaSala(salaId, resposta.jogadores, resposta.segundosParaIniciar, resposta.chatAberto);
         } catch (erroDaChamada) {
             setErro(erroDaChamada.message);
         }
@@ -116,6 +118,14 @@ export default function Lobby({ meuNome, salaParaReconectar, onEntrouNaSala, onR
                             value={botNumber}
                             onChange={(e) => setBotNumber(e.target.value)}
                         />
+                    </label>
+                    <label style={{ flexDirection: 'row', alignItems: 'center', gap: '6px' }}>
+                        <input
+                            type="checkbox"
+                            checked={chatAberto}
+                            onChange={(e) => setChatAberto(e.target.checked)}
+                        />
+                        Chat aberto
                     </label>
                     <button onClick={criarSala}>Criar</button>
                 </form>

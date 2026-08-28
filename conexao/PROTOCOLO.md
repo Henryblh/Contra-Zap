@@ -74,11 +74,13 @@ Erros possíveis: `CADASTRO_INVALIDO` (nome/senha curtos demais),
 `NOME_JA_CADASTRADO`.
 
 ### `criarSala`
-Payload: `{ numberPlayers?: number, roundStart?: number, randomShuffle?: boolean, botNumber?: number }`
-(todos opcionais — default vem do `SalaManager`: 4 / 3 / true / 0)
+Payload: `{ numberPlayers?: number, roundStart?: number, randomShuffle?: boolean, botNumber?: number, chatAberto?: boolean }`
+(todos opcionais — default vem do `SalaManager`: 4 / 3 / true / 0 / false)
 `numberPlayers` precisa ser inteiro entre 2 e 6; `roundStart` inteiro ≥ 1;
 `botNumber` inteiro entre 0 e `numberPlayers - 1` (sempre sobra pelo menos o
-assento de quem criou) — fora disso, `CONFIGURACAO_INVALIDA`.
+assento de quem criou); `chatAberto`, se vier, precisa ser boolean — fora
+disso, `CONFIGURACAO_INVALIDA`. `chatAberto` libera o chat de texto livre da
+sala (ver evento `chat`); as mensagens prontas não dependem dele.
 `botNumber` preenche o resto dos assentos com bots (ver `bots/Bot.js`)
 assim que a sala nasce, na ordem de entrada normal — se isso já lotar a
 sala, a partida é agendada na hora, igual qualquer `entrarSala` que lote.
@@ -88,7 +90,7 @@ jogado depois de uma pausa de `atrasoBotMs` (1s por padrão), sem esperar
 `tempoTurnoMs` (ver `PlayerGame.bot`).
 Pré-condição: socket já mandou `entrar` com sucesso.
 Ack sucesso: `{ ok: true, salaId, numberPlayers, jogadores: [{ nome }],
-segundosParaIniciar: number | null }`. O socket já dá `join` na sala;
+segundosParaIniciar: number | null, chatAberto: boolean }`. O socket já dá `join` na sala;
 `jogadores` vem no próprio ack (o dono + os bots que `botNumber` já colocou)
 porque o broadcast de `listaJogadores` sai *dentro* deste handler, antes do
 ack — um cliente que só registra o listener depois de processar o ack
@@ -103,8 +105,9 @@ Erros possíveis: `NAO_IDENTIFICADO`, `CONFIGURACAO_INVALIDA`.
 Payload: `{ salaId: string }`
 Pré-condição: socket já mandou `entrar` com sucesso.
 Ack sucesso: `{ ok: true, salaId, numberPlayers, jogadores,
-segundosParaIniciar: number | null }`. O socket já dá `join` na sala; todos
-os membros (incluindo quem entrou) recebem `listaJogadores` atualizado. Se
+segundosParaIniciar: number | null, chatAberto: boolean }`. O socket já dá
+`join` na sala; todos os membros (incluindo quem entrou) recebem
+`listaJogadores` atualizado. Se
 essa entrada lotar a sala, o início automático é agendado (ver
 `partidaIniciandoEm`) e `segundosParaIniciar` vem preenchido no ack — quem
 acabou de entrar só monta a tela depois do ack e perderia o broadcast de
@@ -115,7 +118,7 @@ Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`, `SALA_CHEIA`,
 ### `listarSalas`
 Payload: `{}`
 Pré-condição: socket já mandou `entrar` com sucesso.
-Ack sucesso: `{ ok: true, salas: [{ salaId, numberPlayers, jogadoresAtual }] }`
+Ack sucesso: `{ ok: true, salas: [{ salaId, numberPlayers, jogadoresAtual, chatAberto }] }`
 — só salas **abertas** (não iniciadas e não cheias). Sala cheia ou já
 iniciada simplesmente não aparece na lista.
 Erros possíveis: `NAO_IDENTIFICADO`.
@@ -270,7 +273,7 @@ parte daquela partida (ter entrado na sala antes dela começar).
 Ack sucesso: `{ ok: true, salaId, mao: string[], cartasRodada: number,
 maosReveladas: [{ jogador, mao: string[] }], suaVez: boolean,
 jogadorDaVez: string | null, suaVezDaAposta: boolean,
-jogadorDaVezAposta: string | null }` — a mão atual de quem reconectou,
+jogadorDaVezAposta: string | null, chatAberto: boolean }` — a mão atual de quem reconectou,
 quantas cartas tem a rodada (pro limite do input de aposta) e de quem é a
 vez agora, tanto pra jogar carta quanto pra apostar (as duas esperas nunca
 coexistem — no máximo um par faz sentido de cada vez, o outro fica
@@ -301,6 +304,27 @@ mais de uma partida em andamento ao mesmo tempo (hoje possível — nada
 impede criar/entrar numa sala nova depois de sair de outra, ver "Sair da
 partida" no front), devolve só a primeira encontrada.
 Erros possíveis: `NAO_IDENTIFICADO`.
+
+### `chat`
+Payload: `{ salaId: string, tipo: 'aberta' | 'restrita', texto?: string, id?: number }`
+Pré-condição: socket já mandou `entrar`; quem manda precisa estar na sala
+(`salaId`) — vale tanto na sala de espera quanto com a partida em andamento.
+Bots não mandam (não têm socket).
+
+- `tipo: 'restrita'`: `id` de uma mensagem pronta do catálogo
+  (`conexao/chat/mensagensChat.js`). **Sempre liberada**, mesmo com
+  `chatAberto: false`. O `texto` do payload é ignorado — o texto vem sempre
+  do catálogo, o cliente não escolhe. `id` fora do catálogo → `CHAT_INVALIDO`.
+- `tipo: 'aberta'`: texto livre digitado pelo jogador. Só funciona se a sala
+  foi criada com `chatAberto: true` (senão `CHAT_DESABILITADO`). O `texto`,
+  depois de `trim`, precisa ter entre 1 e 200 caracteres (`CHAT_INVALIDO`
+  fora disso).
+
+Ack sucesso: `{ ok: true }`. O servidor então faz `chatMensagem` pra sala
+inteira, **incluindo quem enviou** (o cliente não renderiza otimista — espera
+o broadcast, igual ao resto do protocolo).
+Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`, `NAO_ESTA_NA_SALA`,
+`CHAT_DESABILITADO`, `CHAT_INVALIDO`.
 
 ## Eventos servidor -> cliente
 
@@ -360,29 +384,45 @@ rodada, modo espectador ou debug sem inventar outro evento. Quem decide o
 recorte é o servidor; o `ocultarProprio` que o `GameController` passa pro
 socket não vai no fio, só controla o filtro por destinatário.
 
+### `chatMensagem`
+
+`{ salaId, jogador: string, tipo: 'aberta' | 'restrita', id: number | null, texto: string }`
+— resposta do servidor a um evento `chat` (ver seção própria acima).
+Broadcast pra sala inteira, **incluindo quem enviou**. Não passa pelo
+`GameController` (chat é da camada de conexão, não do jogo), então chega
+igual na sala de espera e na partida.
+
+- `tipo: 'restrita'`: `id` é o do catálogo e `texto` é o texto resolvido
+  dele — o cliente pode usar qualquer um dos dois (renderizar por `id` como
+  um "chip", ou só mostrar `texto`).
+- `tipo: 'aberta'`: `id` é `null` e `texto` é o que o jogador digitou, já
+  com `trim` e limitado a 200 caracteres pelo servidor.
+
 ## Códigos de erro (`CodigosErro`)
 
 | Código | Quando |
 |---|---|
-| `NAO_IDENTIFICADO` | Mandou `criarSala`/`entrarSala`/`listarSalas`/`forcarInicio`/`sairSala`/`jogarCarta`/`reconectar`/`minhaSalaAtiva` sem ter mandado `entrar` antes |
+| `NAO_IDENTIFICADO` | Mandou `criarSala`/`entrarSala`/`listarSalas`/`forcarInicio`/`sairSala`/`jogarCarta`/`reconectar`/`minhaSalaAtiva`/`chat` sem ter mandado `entrar` antes |
 | `USUARIO_NAO_ENCONTRADO` | `entrar` com nome que não existe no banco |
 | `SENHA_INCORRETA` | `entrar` com nome existente, senha errada |
 | `CADASTRO_INVALIDO` | `cadastrar` com nome ou senha menor que 3 caracteres |
 | `NOME_JA_CADASTRADO` | `cadastrar` com nome que já existe no banco |
 | `NOME_INVALIDO` | `entrarSala` com nome já em uso *nessa sala* |
-| `CONFIGURACAO_INVALIDA` | `criarSala` com `numberPlayers`/`roundStart`/`botNumber` fora do intervalo aceito |
+| `CONFIGURACAO_INVALIDA` | `criarSala` com `numberPlayers`/`roundStart`/`botNumber` fora do intervalo aceito, ou `chatAberto` que não é boolean |
 | `SALA_NAO_ENCONTRADA` | `entrarSala`/`forcarInicio`/`sairSala`/`jogarCarta`/`reconectar` com `salaId` que não existe |
 | `SALA_CHEIA` | `entrarSala` numa sala que já tem `numberPlayers` jogadores |
 | `SALA_NAO_CHEIA` | `forcarInicio` antes da sala lotar |
 | `SALA_JA_INICIADA` | `entrarSala`/`forcarInicio`/`sairSala` numa sala cuja partida já começou |
 | `SALA_NAO_INICIADA` | `jogarCarta`/`reconectar` numa sala cuja partida ainda não começou |
 | `JA_ESTA_NA_SALA` | `entrarSala` com o mesmo jogador (mesmo id de sessão) já presente |
-| `NAO_ESTA_NA_SALA` | `sairSala` por quem não está (mais) naquela sala; `reconectar` por quem não faz parte da partida |
+| `NAO_ESTA_NA_SALA` | `sairSala` por quem não está (mais) naquela sala; `reconectar`/`chat` por quem não faz parte da partida/sala |
 | `NAO_AUTORIZADO` | `forcarInicio` por quem não é o adm da sala |
 | `NAO_E_SUA_VEZ` | `jogarCarta`/`apostar` fora da sua vez |
 | `CARTA_INVALIDA` | `jogarCarta` com `indice` que não existe na mão de quem mandou |
 | `APOSTA_INVALIDA` | `apostar` com `valor` fora de `[0, número de cartas da rodada]` |
 | `APOSTA_FECHA_RODADA` | `apostar` pelo último da rodada com `valor` que fecharia a soma de todo mundo no número de cartas |
+| `CHAT_DESABILITADO` | `chat` com `tipo: 'aberta'` numa sala criada sem `chatAberto` |
+| `CHAT_INVALIDO` | `chat` com `tipo` desconhecido, `id` fora do catálogo, ou `texto` vazio/maior que 200 caracteres |
 | `ERRO_INTERNO` | Exceção inesperada no servidor — não deveria acontecer; se aparecer, é bug |
 
 ## O que fica fora deste marco (decisão adiada, não esquecida)
