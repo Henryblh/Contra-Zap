@@ -1,12 +1,14 @@
 // convidado.js
 // Login "pseudo-guest": autentica só com nome, sem senha, sem gravar nada no
-// banco. O Player nasce só em memória com um id negativo (nunca colide com
-// os ids AUTOINCREMENT do SQLite, que são sempre positivos e começam em 1) —
-// dá pra esquecer essa conta assim que o processo reinicia ou o socket
-// desconecta, mesmo espírito de outros dados só-em-memória do projeto (ver
-// socket.js no front, que também não persiste token nenhum). Mesmo formato
-// de login.js/cadastro.js: não sabe nada sobre socket.io.
+// banco. O Player nasce só em memória com um id negativo (via
+// game/idEfemero.js — mesma fonte que bots/Bot.js, pra nunca colidir nem com
+// os ids AUTOINCREMENT do SQLite, sempre positivos, nem entre si) — dá pra
+// esquecer essa conta assim que o processo reinicia ou o socket desconecta,
+// mesmo espírito de outros dados só-em-memória do projeto (ver socket.js no
+// front, que também não persiste token nenhum). Mesmo formato de
+// login.js/cadastro.js: não sabe nada sobre socket.io.
 import { Player } from '../game/Player.js';
+import { proximoIdEfemero } from '../game/idEfemero.js';
 import { CodigosErro } from './eventos.js';
 import { usuarioExiste } from './db.js';
 import { emitirToken } from './jwt.js';
@@ -20,11 +22,6 @@ export class ErroConvidado extends Error {
         this.codigo = codigo;
     }
 }
-
-// Contador compartilhado por todo o processo — cada convidado recebe o
-// próximo id negativo, então dois convidados nunca colidem entre si, e
-// nenhum convidado colide com uma conta de verdade.
-let proximoId = -1;
 
 // Devolve { token, player }, igual login()/cadastrar(). Lança ErroConvidado
 // se o nome for curto demais ou (checagem de última hora, contra corrida com
@@ -41,7 +38,7 @@ export function entrarComoConvidado(nome) {
     }
 
     const player = new Player(nomeLimpo, null);
-    player.id = proximoId--;
+    player.id = proximoIdEfemero();
 
     const token = emitirToken(player);
     return { token, player };

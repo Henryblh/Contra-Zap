@@ -71,6 +71,8 @@ game/              -> regras do jogo (baralho, cartas, mesa, rodada, jogadores),
                       não sabe nada sobre servidor, socket ou front-end
   GameController.js  -> orquestra uma partida inteira e emite eventos (mão distribuída,
                          carta jogada, vaza fechada, etc.)
+  idEfemero.js        -> fonte única de ids negativos pra Player sem linha no banco
+                         (compartilhada por bots/Bot.js e conexao/convidado.js)
 bots/              -> jogadores controlados pelo computador
   Bot.js              -> um "jogador" sem socket (id negativo, nunca desconecta)
   BotBrain.js         -> decide jogada/aposta automática — hoje um placeholder burro
@@ -148,15 +150,6 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
 
 ## O que falta fazer
 
-- 🔴 **[BUG] Colisão de id entre bots e convidados** — `bots/Bot.js` e
-  `conexao/convidado.js` mantêm contadores negativos **independentes**, os
-  dois começando em `-1`. O primeiro bot e o primeiro convidado do processo
-  nascem com o mesmo `Player.id`, e se os dois caírem na mesma sala, os
-  vários `.find(j => j.id === playerId)` espalhados pelo `GameController`
-  (`jogarCarta`, `apostar`, `reconectar`...) podem resolver pro objeto
-  errado — mutar a mão/creditar a jogada de um jogador ao outro. Precisa de
-  uma única fonte de ids efêmeros compartilhada entre bots e convidados (ou
-  faixas negativas separadas que nunca se sobrepõem).
 - **Lógica de verdade dos bots** (`bots/BotBrain.js`) — hoje é só um
   placeholder burro (sempre a última carta, sempre aposta 1). A estrutura já
   tá pronta pra trocar isso sem mexer em mais nada; o plano é evoluir pra uma
