@@ -1,5 +1,6 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { socket, chamar } from '../socket.js';
+import { MENSAGENS_PRONTAS, CHAT_COOLDOWN_MS } from '../chatMensagens.js';
 
 // Tela 3: uma sala inteira, da espera até o fim da partida. É um componente
 // só (não um por fase) porque é uma assinatura contínua dos mesmos eventos
@@ -14,7 +15,7 @@ import { socket, chamar } from '../socket.js';
 // duas frentes (aposta e carta) nunca vêm preenchidas ao mesmo tempo — no
 // máximo uma delas reflete a espera de verdade, a outra some sozinha assim
 // que a fase seguinte começar de verdade.
-export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, reconexao, meuNome, onSairDaSala, onSairDaPartida }) {
+export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, reconexao, chatAberto, meuNome, onSairDaSala, onSairDaPartida }) {
     // Semeado do ack de criarSala/entrarSala, não do broadcast de
     // listaJogadores — o primeiro broadcast sai antes desta tela existir
     // (e o listener abaixo com ele), então dependeria de um evento que já
@@ -51,6 +52,16 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
     // definitiva na partida).
     const [apostas, setApostas] = useState({});
     const [eliminados, setEliminados] = useState([]);
+    // Chat da sala (ver conexao/PROTOCOLO.md). `mensagensChat` acumula o que
+    // chega em chatMensagem (broadcast, inclui o que eu mesmo mandei).
+    // `cooldownAte` é o timestamp até quando os botões de envio ficam
+    // travados — 3s depois de qualquer envio, pra não virar spam.
+    const [mensagensChat, setMensagensChat] = useState([]);
+    const [textoChat, setTextoChat] = useState('');
+    const [erroChat, setErroChat] = useState(null);
+    const [cooldownAte, setCooldownAte] = useState(0);
+    const [agora, setAgora] = useState(() => Date.now());
+    const feedChatRef = useRef(null);
 
     useEffect(() => {
         const registrar = (linha) => setLog((anterior) => [...anterior.slice(-49), linha]);
@@ -162,6 +173,13 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
                 if (!daSala(p)) return;
                 registrar(`🔌 ${p.jogador} reconectou`);
             },
+            chatMensagem(p) {
+                if (!daSala(p)) return;
+                setMensagensChat((anterior) => [
+                    ...anterior.slice(-99),
+                    { jogador: p.jogador, texto: p.texto, tipo: p.tipo },
+                ]);
+            },
             jogadorExpulsoPorInatividade(p) {
                 if (!daSala(p)) return;
                 if (p.jogador === meuNome) {
@@ -192,6 +210,51 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
             for (const [evento, handler] of Object.entries(comLog)) socket.off(evento, handler);
         };
     }, [salaId]);
+
+    // Enquanto o cooldown está de pé, um tiquetaque só pra atualizar o
+    // contador na tela; para sozinho quando zera.
+    useEffect(() => {
+        if (cooldownAte <= Date.now()) return;
+        const id = setInterval(() => setAgora(Date.now()), 250);
+        return () => clearInterval(id);
+    }, [cooldownAte]);
+
+    // Rola o feed do chat pro fim sempre que chega mensagem nova.
+    useEffect(() => {
+        const el = feedChatRef.current;
+        if (el) el.scrollTop = el.scrollHeight;
+    }, [mensagensChat]);
+
+    const segundosCooldown = Math.max(0, Math.ceil((cooldownAte - agora) / 1000));
+    const chatEmCooldown = segundosCooldown > 0;
+
+    // Um caminho só pros dois tipos de envio: manda, arma o cooldown de 3s no
+    // sucesso, mostra o erro do ack no painel do chat.
+    async function enviarChat(conteudo) {
+        setErroChat(null);
+        try {
+            await chamar('chat', { salaId, ...conteudo });
+            setCooldownAte(Date.now() + CHAT_COOLDOWN_MS);
+            setAgora(Date.now());
+            return true;
+        } catch (erroDaChamada) {
+            setErroChat(erroDaChamada.message);
+            return false;
+        }
+    }
+
+    function enviarChatPronta(id) {
+        if (chatEmCooldown) return;
+        enviarChat({ tipo: 'restrita', id });
+    }
+
+    async function enviarChatLivre(evento) {
+        evento.preventDefault();
+        if (chatEmCooldown) return;
+        const texto = textoChat.trim();
+        if (!texto) return;
+        if (await enviarChat({ tipo: 'aberta', texto })) setTextoChat('');
+    }
 
     async function apostar(evento) {
         evento.preventDefault();
@@ -269,7 +332,53 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
     console.log('vira:', vira);
 
     return (
-        <div className="cartao cartao-larga">
+        <div className="partida-layout">
+            <aside className="chat-painel">
+                <h3>Chat</h3>
+                <div className="chat-prontas">
+                    {MENSAGENS_PRONTAS.map((m) => (
+                        <button
+                            key={m.id}
+                            type="button"
+                            className="secundario"
+                            disabled={chatEmCooldown}
+                            onClick={() => enviarChatPronta(m.id)}
+                        >
+                            {m.texto}
+                        </button>
+                    ))}
+                </div>
+
+                <div className="chat-feed" ref={feedChatRef}>
+                    {mensagensChat.length === 0
+                        ? <span className="vazio">(sem mensagens)</span>
+                        : mensagensChat.map((m, i) => (
+                            <div key={i} className="chat-msg">
+                                <strong>{m.jogador === meuNome ? 'Você' : m.jogador}:</strong> {m.texto}
+                            </div>
+                        ))}
+                </div>
+
+                {chatAberto && (
+                    <form className="chat-livre" onSubmit={enviarChatLivre}>
+                        <input
+                            type="text"
+                            maxLength={200}
+                            placeholder="Mensagem..."
+                            value={textoChat}
+                            onChange={(e) => setTextoChat(e.target.value)}
+                        />
+                        <button type="submit" disabled={chatEmCooldown || !textoChat.trim()}>
+                            Enviar
+                        </button>
+                    </form>
+                )}
+
+                {chatEmCooldown && <span className="vazio">aguarde {segundosCooldown}s pra enviar de novo</span>}
+                {erroChat && <p className="erro">{erroChat}</p>}
+            </aside>
+
+            <div className="cartao cartao-larga">
             <div className="linha" style={{ justifyContent: 'space-between' }}>
                 <h1>Sala {salaId}</h1>
                 <button className="secundario" onClick={sair} type="button">
@@ -405,6 +514,7 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
                 <h3>Log de eventos (debug)</h3>
                 <pre className="log">{log.join('\n')}</pre>
             </section>
+            </div>
         </div>
     );
 }
