@@ -64,6 +64,13 @@ export default function App() {
     }
     return (
         <Partida
+            // key força o React a montar uma instância NOVA sempre que
+            // salaId muda — sem isso, trocar de sala rodando "jogar de
+            // novo" (Partida -> Partida, sem passar pela Lobby no meio)
+            // reaproveitaria a mesma instância e todo o estado local
+            // (vencedor, jogadores, mão, mesa...) ficaria preso na sala
+            // antiga, mesmo com salaId/título já mostrando a sala nova.
+            key={sala.salaId}
             salaId={sala.salaId}
             jogadoresIniciais={sala.jogadoresIniciais}
             segundosIniciais={sala.segundosParaIniciar}

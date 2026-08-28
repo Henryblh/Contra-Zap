@@ -216,6 +216,12 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
                     salaPorSocket.set(socket.id, salaCriada.salaId);
                     ligarControllerASala(io, salaCriada, socketPorJogador, salaPorSocket);
                 });
+                // Quem chamou jogarDeNovo sai de verdade da sala que
+                // terminou — o socket não deve mais receber nada dela
+                // (nem o próprio convidadoParaRevanche abaixo, que é pra
+                // quem ficou). salaPorSocket já foi sobrescrito pra apontar
+                // pra sala nova, dentro do aoNascer acima.
+                socket.leave(salaId);
                 notificarSala(io, novaSala);
                 // Avisa quem mais estava na sala que terminou (broadcast na
                 // room antiga — ninguém saiu dela ainda, exceto quem já tinha
