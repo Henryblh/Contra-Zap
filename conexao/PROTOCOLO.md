@@ -35,9 +35,13 @@ jogador.
 ## Fluxo básico
 
 1. Cliente conecta o socket.
-2. Cliente manda `entrar` com nome/senha -> servidor autentica contra o banco
-   (via `conexao/login.js`/`conexao/db.js`) e associa `socket.id` a um
-   `Player` pelo resto da conexão. Devolve um token JWT (`conexao/jwt.js`).
+2. Cliente manda `verificarNome` só com o nome pra saber se já existe conta,
+   e então um de `entrar` (nome/senha, conta existente), `cadastrar`
+   (nome/senha, conta nova) ou `entrarComoConvidado` (só nome, sem conta) ->
+   servidor autentica (contra o banco nos dois primeiros, via
+   `conexao/login.js`/`conexao/cadastro.js`/`conexao/db.js`; só em memória no
+   terceiro, via `conexao/convidado.js`) e associa `socket.id` a um `Player`
+   pelo resto da conexão. Devolve um token JWT (`conexao/jwt.js`).
    O socket também entra numa sala pessoal `jogador:<id>` — é pra lá que vai
    qualquer informação privada do jogador (hoje só a mão, `suaMao`).
 3. Cliente decide: `criarSala` (vira dono/adm, sala nasce com ele dentro) ou
@@ -57,9 +61,25 @@ jogador.
 
 ## Eventos cliente -> servidor
 
+### `verificarNome`
+Payload: `{ nome: string }`
+Pré-condição: nenhuma (pode ser o primeiro evento da conexão — não exige
+`entrar` antes, nem autentica o socket).
+Ack sucesso: `{ ok: true, existe: boolean }` — `nome` (depois de `trim`) já
+tem conta cadastrada? É só uma consulta, sem efeito colateral nenhum.
+Erros possíveis: nenhum — `nome` ausente/não-string devolve `existe: false`
+em vez de erro.
+
+Existe pra decidir, no fluxo de login em etapas (estilo Pokémon Showdown), o
+que o cliente pede a seguir: se `existe`, pede senha pra confirmar
+identidade (`entrar`); senão, oferece registrar o nome (`cadastrar`) ou
+seguir sem conta (`entrarComoConvidado`). Não existe botão de "entrar como
+convidado" solto na interface — é sempre consequência de responder "não" a
+essa oferta.
+
 ### `entrar`
 Payload: `{ nome: string, senha: string }`
-Pré-condição: nenhuma (primeiro evento da conexão).
+Pré-condição: nenhuma.
 Ack sucesso: `{ ok: true, nome, token }`.
 Erros possíveis: `USUARIO_NAO_ENCONTRADO`, `SENHA_INCORRETA`.
 
@@ -72,6 +92,26 @@ Ack sucesso: `{ ok: true, nome, token }` — mesmo formato de `entrar`; a
 conta já nasce autenticada, não precisa de um `entrar` separado depois.
 Erros possíveis: `CADASTRO_INVALIDO` (nome/senha curtos demais),
 `NOME_JA_CADASTRADO`.
+
+### `entrarComoConvidado`
+Payload: `{ nome: string }` — precisa ter pelo menos 3 caracteres depois de
+`trim`, mesmo mínimo de `cadastrar`.
+Pré-condição: nenhuma (alternativa a `cadastrar` pra quem respondeu "não"
+à oferta de registro depois de um `verificarNome` com `existe: false`).
+Ack sucesso: `{ ok: true, nome, token }` — mesmo formato de `entrar`/
+`cadastrar`; autentica o socket do mesmo jeito (mesmo `autenticarSocket`,
+mesma sala pessoal `jogador:<id>`), então o resto do protocolo (criar/entrar
+em sala, jogar) funciona sem diferença nenhuma. A diferença fica só em
+`conexao/convidado.js`: o `Player` nasce só em memória, com um id negativo
+(nunca colide com os ids `AUTOINCREMENT`, sempre positivos, do banco) e
+**nada é gravado em `banco.sqlite`** — a conta "some" no disconnect ou no
+restart do processo, não sobrevive a um F5 (mesma filosofia de token não
+persistido em `socket.js`, ver seção "Fluxo básico").
+Erros possíveis: `CONVIDADO_INVALIDO` (nome curto demais),
+`NOME_JA_CADASTRADO` (alguém registrou esse exato nome entre o
+`verificarNome` do cliente e esta chamada — corrida rara, mas a checagem
+contra o banco é refeita aqui em vez de confiar só no que o cliente viu
+antes).
 
 ### `criarSala`
 Payload: `{ numberPlayers?: number, roundStart?: number, randomShuffle?: boolean, botNumber?: number, chatAberto?: boolean }`
@@ -100,6 +140,28 @@ dos casos, mas vem preenchido quando `botNumber` já lotou a sala: aí o
 `agendarInicio` (e o broadcast de `partidaIniciandoEm`) dispara dentro deste
 handler, antes do ack — mesmo motivo de `jogadores` vir aqui.
 Erros possíveis: `NAO_IDENTIFICADO`, `CONFIGURACAO_INVALIDA`.
+
+### `partidaRapida`
+Payload: `{}`
+Pré-condição: socket já mandou `entrar`/`cadastrar`/`entrarComoConvidado`.
+Ack sucesso: mesmo formato de `criarSala`/`entrarSala` — `{ ok: true, salaId,
+numberPlayers, jogadores, segundosParaIniciar: number | null, chatAberto }`.
+Erros possíveis: `NAO_IDENTIFICADO`, mais os que `entrarSala` pode devolver
+quando cai no caminho de entrar numa sala já existente (`NOME_INVALIDO` se o
+nome já estiver em uso nela — caso raro, dois jogadores com o mesmo nome
+batendo na fila ao mesmo tempo).
+
+Fila compartilhada de sala com config default (mesmo resultado de
+`criarSala` sem parâmetros nenhum — 4 jogadores, 3 cartas na primeira
+rodada, sem bots, chat fechado): quem chama primeiro cria essa sala; todo
+mundo que chamar depois, enquanto ela continuar aberta (não cheia, não
+iniciada), entra nela em vez de criar uma nova — não precisa saber o
+`salaId` de antemão. Assim que ela lota (e a partida é agendada, igual
+qualquer `entrarSala`/`criarSala` que lote), a próxima chamada cria outra
+sala do zero e vira a nova "sala da fila". O jeito manual de criar sala
+(`criarSala` com config própria) continua existindo do lado do cliente sem
+nenhuma mudança — `partidaRapida` é só um atalho por cima do mesmo
+`SalaManager`, não substitui nada.
 
 ### `entrarSala`
 Payload: `{ salaId: string }`
@@ -406,7 +468,8 @@ igual na sala de espera e na partida.
 | `USUARIO_NAO_ENCONTRADO` | `entrar` com nome que não existe no banco |
 | `SENHA_INCORRETA` | `entrar` com nome existente, senha errada |
 | `CADASTRO_INVALIDO` | `cadastrar` com nome ou senha menor que 3 caracteres |
-| `NOME_JA_CADASTRADO` | `cadastrar` com nome que já existe no banco |
+| `NOME_JA_CADASTRADO` | `cadastrar` com nome que já existe no banco; ou `entrarComoConvidado` com nome que virou conta registrada entre o `verificarNome` do cliente e a chamada |
+| `CONVIDADO_INVALIDO` | `entrarComoConvidado` com nome menor que 3 caracteres |
 | `NOME_INVALIDO` | `entrarSala` com nome já em uso *nessa sala* |
 | `CONFIGURACAO_INVALIDA` | `criarSala` com `numberPlayers`/`roundStart`/`botNumber` fora do intervalo aceito, ou `chatAberto` que não é boolean |
 | `SALA_NAO_ENCONTRADA` | `entrarSala`/`forcarInicio`/`sairSala`/`jogarCarta`/`reconectar` com `salaId` que não existe |

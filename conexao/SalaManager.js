@@ -78,6 +78,11 @@ export class SalaManager {
         // undefined = deixa o GameController usar o próprio default (1s).
         // Mesmo motivo do tempoTurnoMs acima.
         this.atrasoBotMs = atrasoBotMs;
+        // salaId da sala "da fila" de partidaRapida (ver método abaixo), ou
+        // null se ninguém pediu partida rápida ainda. Não precisa ser
+        // invalidado explicitamente quando a sala lota/descarta — partidaRapida
+        // sempre confere se ainda está aberta antes de reusar.
+        this.salaFilaRapidaId = null;
     }
 
     // Cria uma sala nova e já coloca o jogador que criou dentro dela. Quem
@@ -124,6 +129,36 @@ export class SalaManager {
         }
 
         return sala;
+    }
+
+    // "Partida rápida": entra numa fila compartilhada de sala com config
+    // default (mesmo resultado de criarSala(player, {}) — 4 jogadores, 3
+    // cartas na primeira rodada, sem bots, chat fechado). Quem chama primeiro
+    // cria a sala e ela vira "a sala da fila"; todo mundo que chamar depois,
+    // enquanto ela continuar aberta (não cheia, não iniciada — mesmo critério
+    // de listarAbertas), entra nela, igual um entrarSala manual só que sem
+    // precisar saber o salaId. Assim que ela deixa de estar aberta (lotou, ou
+    // foi descartada por ficar vazia), a referência guardada fica "velha" —
+    // em vez de invalidar isso em algum outro lugar toda vez que o estado da
+    // sala muda, a checagem "ainda está aberta?" é feita aqui mesmo, na hora:
+    // o próximo chamador simplesmente cria outra sala do zero.
+    //
+    // `aoNascer` (mesmo gancho de criarSala) só roda quando uma sala nova
+    // nasce — reentrar numa já existente não precisa religar nada, o
+    // controller já está com os listeners de socket assinados desde que ela
+    // nasceu. Devolve { sala, criada } pra quem chamou saber se precisa
+    // religar o controller (criada) ou só entrar numa sala já pronta.
+    partidaRapida(player, aoNascer) {
+        const atual = this.salaFilaRapidaId ? this.salas.get(this.salaFilaRapidaId) : null;
+        const aberta = atual && !atual.iniciada && atual.jogadores.length < atual.numberPlayers;
+
+        if (aberta) {
+            return { sala: this.entrarSala(atual.salaId, player), criada: false };
+        }
+
+        const sala = this.criarSala(player, {}, aoNascer);
+        this.salaFilaRapidaId = sala.salaId;
+        return { sala, criada: true };
     }
 
     // Coloca um jogador numa sala existente, validando as regras de entrada.

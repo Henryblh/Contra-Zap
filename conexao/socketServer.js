@@ -4,6 +4,8 @@
 // login não sabem nada sobre isso, o que é o que permite testá-los sozinhos.
 import { login, ErroLogin } from './login.js';
 import { cadastrar, ErroCadastro } from './cadastro.js';
+import { entrarComoConvidado, ErroConvidado } from './convidado.js';
+import { usuarioExiste } from './db.js';
 import { SalaManager, ErroSala } from './SalaManager.js';
 import { montarMensagemChat, ErroChat } from './chat/chat.js';
 import { EventosCliente, EventosServidor, CodigosErro } from './eventos.js';
@@ -54,6 +56,13 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
             socket.join(`jogador:${player.id}`);
         };
 
+        // Pré-autenticação: não exige "entrar" antes (é o que decide se o
+        // cliente vai pedir senha pra confirmar identidade, ou oferecer
+        // cadastro/convidado). Nome vazio/ausente não é erro, só nunca existe.
+        socket.on(EventosCliente.VERIFICAR_NOME, ({ nome } = {}, ack) => {
+            responder(ack, () => ({ existe: typeof nome === 'string' && usuarioExiste(nome.trim()) }));
+        });
+
         socket.on(EventosCliente.ENTRAR, ({ nome, senha } = {}, ack) => {
             responder(ack, () => {
                 const { token, player } = login(nome, senha);
@@ -65,6 +74,14 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
         socket.on(EventosCliente.CADASTRAR, ({ nome, senha } = {}, ack) => {
             responder(ack, () => {
                 const { token, player } = cadastrar(nome, senha);
+                autenticarSocket(player);
+                return { nome: player.nome, token };
+            });
+        });
+
+        socket.on(EventosCliente.ENTRAR_COMO_CONVIDADO, ({ nome } = {}, ack) => {
+            responder(ack, () => {
+                const { token, player } = entrarComoConvidado(nome);
                 autenticarSocket(player);
                 return { nome: player.nome, token };
             });
@@ -95,6 +112,33 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
                 // história pro partidaIniciandoEm quando botNumber já lota a
                 // sala: o agendarInicio dispara dentro de criarSala, antes
                 // do ack — então o "quantos segundos" também vem aqui.
+                return {
+                    salaId: sala.salaId,
+                    numberPlayers: sala.numberPlayers,
+                    jogadores: resumoJogadores(sala),
+                    segundosParaIniciar: sala.controller.inicioAgendado ? sala.controller.segundosParaIniciar : null,
+                    chatAberto: sala.chatAberto,
+                };
+            });
+        });
+
+        socket.on(EventosCliente.PARTIDA_RAPIDA, (_payload, ack) => {
+            responder(ack, () => {
+                const player = exigirJogador();
+                // Mesmo gancho de timing de criarSala: só é chamado quando a
+                // sala é nova de fato (SalaManager.partidaRapida decide isso).
+                const { sala, criada } = salaManager.partidaRapida(player, (salaCriada) => {
+                    socket.join(salaCriada.salaId);
+                    salaPorSocket.set(socket.id, salaCriada.salaId);
+                    ligarControllerASala(io, salaCriada, socketPorJogador, salaPorSocket);
+                });
+                // Entrando numa sala já existente, o join precisa acontecer
+                // aqui mesmo — o gancho acima só roda no caminho de criação.
+                if (!criada) {
+                    socket.join(sala.salaId);
+                    salaPorSocket.set(socket.id, sala.salaId);
+                }
+                notificarSala(io, sala);
                 return {
                     salaId: sala.salaId,
                     numberPlayers: sala.numberPlayers,
@@ -335,7 +379,7 @@ function responder(ack, acao) {
         const resultado = acao();
         ack({ ok: true, ...resultado });
     } catch (erro) {
-        if (erro instanceof ErroLogin || erro instanceof ErroCadastro || erro instanceof ErroSala || erro instanceof ErroChat || erro instanceof ErroProtocolo) {
+        if (erro instanceof ErroLogin || erro instanceof ErroCadastro || erro instanceof ErroConvidado || erro instanceof ErroSala || erro instanceof ErroChat || erro instanceof ErroProtocolo) {
             ack({ ok: false, codigo: erro.codigo, mensagem: erro.message });
         } else {
             console.error('Erro inesperado num handler de socket:', erro);

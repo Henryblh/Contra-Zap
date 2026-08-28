@@ -31,6 +31,16 @@ export default function Lobby({ meuNome, salaParaReconectar, onEntrouNaSala, onR
         return () => clearInterval(intervalo);
     }, []);
 
+    async function partidaRapida() {
+        setErro(null);
+        try {
+            const resposta = await chamar('partidaRapida');
+            onEntrouNaSala(resposta.salaId, resposta.jogadores, resposta.segundosParaIniciar, resposta.chatAberto);
+        } catch (erroDaChamada) {
+            setErro(erroDaChamada.message);
+        }
+    }
+
     async function criarSala(evento) {
         evento.preventDefault();
         setErro(null);
@@ -91,6 +101,12 @@ export default function Lobby({ meuNome, salaParaReconectar, onEntrouNaSala, onR
                     </button>
                 </section>
             )}
+
+            <section>
+                <button type="button" onClick={partidaRapida} style={{ width: '100%' }}>
+                    Partida rápida
+                </button>
+            </section>
 
             <section>
                 <h2>Criar sala</h2>
