@@ -11,8 +11,10 @@
 // separado — o erro vem na própria resposta do ack. Ver PROTOCOLO.md.
 
 export const EventosCliente = {
+    VERIFICAR_NOME: 'verificarNome', // { nome } -> ack: { ok, existe: boolean } — pré-autenticação (não precisa de "entrar" antes); decide se o cliente pede senha pra confirmar identidade ou oferece cadastro/convidado
     ENTRAR: 'entrar',           // { nome, senha } -> ack: { ok, nome, token }
     CADASTRAR: 'cadastrar',     // { nome, senha } -> ack: { ok, nome, token } — já autentica, sem precisar de "entrar" depois
+    ENTRAR_COMO_CONVIDADO: 'entrarComoConvidado', // { nome } -> ack: { ok, nome, token } — pseudo-guest: Player só em memória (id negativo), nunca grava no banco; nasce autenticado igual entrar/cadastrar
     CRIAR_SALA: 'criarSala',    // { numberPlayers, roundStart, randomShuffle, botNumber, chatAberto } -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar, chatAberto } — botNumber preenche o resto dos assentos com bots (ver bots/Bot.js); segundosParaIniciar != null se os bots já lotaram a sala; chatAberto (default false) libera o chat de texto livre da sala
     ENTRAR_SALA: 'entrarSala',  // { salaId } -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar, chatAberto } — segundosParaIniciar != null se esta entrada lotou a sala
     LISTAR_SALAS: 'listarSalas', // {} -> ack: { ok, salas: [{ salaId, numberPlayers, jogadoresAtual }] }
@@ -73,6 +75,7 @@ export const CodigosErro = {
     USUARIO_NAO_ENCONTRADO: 'USUARIO_NAO_ENCONTRADO', // login: nome não existe no banco
     SENHA_INCORRETA: 'SENHA_INCORRETA',               // login: nome existe, senha não bate
     CADASTRO_INVALIDO: 'CADASTRO_INVALIDO',           // cadastrar: nome/senha fora do tamanho mínimo aceito
-    NOME_JA_CADASTRADO: 'NOME_JA_CADASTRADO',         // cadastrar: nome já existe no banco
+    NOME_JA_CADASTRADO: 'NOME_JA_CADASTRADO',         // cadastrar: nome já existe no banco; ou entrarComoConvidado: nome virou conta registrada entre o verificarNome e esta chamada (corrida com um cadastro concorrente)
+    CONVIDADO_INVALIDO: 'CONVIDADO_INVALIDO',         // entrarComoConvidado: nome fora do tamanho mínimo aceito
     ERRO_INTERNO: 'ERRO_INTERNO',                     // exceção inesperada no servidor (não deveria acontecer)
 };

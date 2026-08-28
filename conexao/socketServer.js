@@ -4,6 +4,8 @@
 // login não sabem nada sobre isso, o que é o que permite testá-los sozinhos.
 import { login, ErroLogin } from './login.js';
 import { cadastrar, ErroCadastro } from './cadastro.js';
+import { entrarComoConvidado, ErroConvidado } from './convidado.js';
+import { usuarioExiste } from './db.js';
 import { SalaManager, ErroSala } from './SalaManager.js';
 import { montarMensagemChat, ErroChat } from './chat/chat.js';
 import { EventosCliente, EventosServidor, CodigosErro } from './eventos.js';
@@ -54,6 +56,13 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
             socket.join(`jogador:${player.id}`);
         };
 
+        // Pré-autenticação: não exige "entrar" antes (é o que decide se o
+        // cliente vai pedir senha pra confirmar identidade, ou oferecer
+        // cadastro/convidado). Nome vazio/ausente não é erro, só nunca existe.
+        socket.on(EventosCliente.VERIFICAR_NOME, ({ nome } = {}, ack) => {
+            responder(ack, () => ({ existe: typeof nome === 'string' && usuarioExiste(nome.trim()) }));
+        });
+
         socket.on(EventosCliente.ENTRAR, ({ nome, senha } = {}, ack) => {
             responder(ack, () => {
                 const { token, player } = login(nome, senha);
@@ -65,6 +74,14 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
         socket.on(EventosCliente.CADASTRAR, ({ nome, senha } = {}, ack) => {
             responder(ack, () => {
                 const { token, player } = cadastrar(nome, senha);
+                autenticarSocket(player);
+                return { nome: player.nome, token };
+            });
+        });
+
+        socket.on(EventosCliente.ENTRAR_COMO_CONVIDADO, ({ nome } = {}, ack) => {
+            responder(ack, () => {
+                const { token, player } = entrarComoConvidado(nome);
                 autenticarSocket(player);
                 return { nome: player.nome, token };
             });
@@ -335,7 +352,7 @@ function responder(ack, acao) {
         const resultado = acao();
         ack({ ok: true, ...resultado });
     } catch (erro) {
-        if (erro instanceof ErroLogin || erro instanceof ErroCadastro || erro instanceof ErroSala || erro instanceof ErroChat || erro instanceof ErroProtocolo) {
+        if (erro instanceof ErroLogin || erro instanceof ErroCadastro || erro instanceof ErroConvidado || erro instanceof ErroSala || erro instanceof ErroChat || erro instanceof ErroProtocolo) {
             ack({ ok: false, codigo: erro.codigo, mensagem: erro.message });
         } else {
             console.error('Erro inesperado num handler de socket:', erro);

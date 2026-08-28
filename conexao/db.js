@@ -53,6 +53,10 @@ export function buscarUsuarioPorNome(nome) {
     return db.prepare('SELECT id, nome, senha_hash FROM usuarios WHERE nome = ?').get(nome) ?? null;
 }
 
+export function usuarioExiste(nome) {
+    return buscarUsuarioPorNome(nome) !== null;
+}
+
 export function criarUsuario(nome, senha) {
     const senha_hash = bcrypt.hashSync(senha, SALT_ROUNDS);
     const info = db.prepare('INSERT INTO usuarios (nome, senha_hash) VALUES (?, ?)').run(nome, senha_hash);
