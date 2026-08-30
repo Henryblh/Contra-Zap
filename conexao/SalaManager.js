@@ -77,7 +77,7 @@ class Sala {
 }
 
 export class SalaManager {
-    constructor({ tempoEsperaInicioMs = TEMPO_ESPERA_INICIO_MS_PADRAO, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs } = {}) {
+    constructor({ tempoEsperaInicioMs = TEMPO_ESPERA_INICIO_MS_PADRAO, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs, tempoReservaMs } = {}) {
         this.salas = new Map();
         this.tempoEsperaInicioMs = tempoEsperaInicioMs;
         // undefined = deixa o GameController usar o próprio default (15s).
@@ -90,6 +90,9 @@ export class SalaManager {
         // undefined = deixa o GameController usar o próprio default (1s).
         // Mesmo motivo do tempoTurnoMs acima.
         this.atrasoBotMs = atrasoBotMs;
+        // undefined = deixa o GameController usar o próprio default (150s).
+        // Mesmo motivo do tempoTurnoMs acima.
+        this.tempoReservaMs = tempoReservaMs;
         // salaId da sala "da fila" de partidaRapida (ver método abaixo), ou
         // null se ninguém pediu partida rápida ainda. Não precisa ser
         // invalidado explicitamente quando a sala lota/descarta — partidaRapida
@@ -129,9 +132,15 @@ export class SalaManager {
             tempoTurnoMs: this.tempoTurnoMs,
             limiteInatividadeMs: this.limiteInatividadeMs,
             atrasoBotMs: this.atrasoBotMs,
+            tempoReservaMs: this.tempoReservaMs,
         });
 
         this.salas.set(salaId, sala);
+        // Não sobrou ninguém real que possa voltar (ver
+        // GameController._expirarVaga) — a sala já era, tira ela do sistema
+        // na mesma hora. O jogo em si (bot contra bot a essa altura) termina
+        // sozinho em segundo plano, sem custo real.
+        sala.controller.on('salaAbandonada', () => this.salas.delete(salaId));
         this._entrar(sala, player);
         sala.jogadores[0].adm = true;
 
@@ -312,6 +321,9 @@ export class SalaManager {
         if (!sala.iniciada) {
             throw new ErroSala(CodigosErro.SALA_NAO_INICIADA, 'Essa sala ainda não começou — use entrarSala.');
         }
+        if (sala.controller.vagaExpirada(player.id)) {
+            throw new ErroSala(CodigosErro.VAGA_EXPIRADA, 'Sua vaga nessa partida expirou — não é mais possível reconectar.');
+        }
 
         const estado = sala.controller.estadoDeReconexao(player.id);
         if (!estado) {
@@ -395,7 +407,11 @@ export class SalaManager {
     // complexidade de devolver uma lista ainda.
     salaAtivaDoJogador(playerId) {
         for (const sala of this.salas.values()) {
-            if (sala.iniciada && sala.jogadores.some(jogador => jogador.id === playerId)) {
+            // vagaExpirada de fora conta como "não tem mais o que descobrir
+            // aqui" — sem isso o cliente continuaria recebendo essa sala como
+            // "dá pra reconectar" pra sempre, mesmo depois de tempoReservaMs
+            // (ver GameController._expirarVaga).
+            if (sala.iniciada && sala.jogadores.some(jogador => jogador.id === playerId && !jogador.vagaExpirada)) {
                 return sala.salaId;
             }
         }

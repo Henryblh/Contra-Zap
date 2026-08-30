@@ -366,6 +366,7 @@ function ligarControllerASala(io, sala, socketPorJogador, salaPorSocket) {
     retransmitir(EventosServidor.JOGADA_AUTOMATICA);
     retransmitir(EventosServidor.JOGADOR_RECONECTOU);
     retransmitir(EventosServidor.JOGADOR_EXPULSO_POR_INATIVIDADE);
+    retransmitir(EventosServidor.VAGA_EXPIRADA);
 
     // Além do broadcast acima (que avisa a sala toda, inclusive o próprio
     // expulso — o cliente decide navegar pra tela de salas olhando o `id`),

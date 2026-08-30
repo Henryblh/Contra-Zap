@@ -136,6 +136,18 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
   campo pra escolher no lobby): um bot entra igual um jogador, sem socket, e
   assume o assento de um jogador de verdade quando ele é expulso por
   inatividade. Falta só a inteligência de verdade (ver "o que falta fazer").
+- ✅ **Expiração de vaga reservada**: depois que um assento vira bot
+  (`jogadorExpulsoPorInatividade`, por inatividade real ou `sairDaPartida`),
+  a vaga fica reservada por `tempoReservaMs` (150s por padrão). Sem
+  `reconectar` real nesse prazo, o servidor avisa (`vagaExpirada`) e a vaga
+  não pode mais ser reclamada — `reconectar` passa a devolver `VAGA_EXPIRADA`
+  e `minhaSalaAtiva` para de oferecer aquela sala pro cliente (sem botão de
+  reconectar automático). Não existe "outra pessoa pode entrar no lugar" —
+  decisão consciente: ninguém quer pegar uma mão alheia no meio de uma
+  partida. Se essa era a última vaga de gente de verdade da sala, ela é
+  removida do sistema na mesma hora (some de tudo, `SALA_NAO_ENCONTRADA` daí
+  em diante); o jogo, agora só bot contra bot, termina sozinho em segundo
+  plano.
 - ✅ Interface web em React funcionando ponta a ponta (login, lobby, partida).
 
 ## Ferramentas de debug (linha de comando)
@@ -169,10 +181,6 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
   é lido nem atualizado em lugar nenhum — se a ideia é ter algum tipo de
   ranking/pontuação entre partidas, esse é o momento de decidir a fórmula e
   ligar isso ao fim de `jogoFinalizado`, antes de esquecer que o campo existe.
-- Uma sala em que todo mundo (ou todo mundo que sobrou) virou bot por
-  inatividade não tem como terminar sozinha nem ser limpa — ela só segue
-  jogando bot contra bot pra sempre. Vale um limite (ex.: ninguém real ativo
-  há X minutos → encerra a partida) além da limpeza de sala já citada acima.
 - Com bots preenchendo assento, dá pra criar uma sala 100% automática
   (`numberPlayers: 2, botNumber: 1` com só você) — bom caso de teste pra
   validar o motor inteiro sem precisar de mais gente, vale ter isso em mente
@@ -195,9 +203,6 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
   casuais sem esse pareamento.
 - Placar/histórico: algum método de quantificar performance do jogador ao
   longo de várias partidas, não só o hp da partida atual.
-- Jogadores desconectados há mais de X minutos (não só expulsos por
-  inatividade dentro de uma partida) liberando a sala/vaga pra outra pessoa
-  entrar, em vez de ficar reservada indefinidamente esperando reconexão.
 - `socket.js` não escuta `disconnect`/`reconnect` do socket.io-client nem dá
   feedback visual de conexão perdida — se a rede cair no meio de uma sessão,
   o jogador só percebe quando alguma ação falhar.
