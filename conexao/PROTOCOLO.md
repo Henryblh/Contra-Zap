@@ -483,11 +483,27 @@ adicionado:
 (`salaId`) quando o adm dela chama `jogarDeNovo`. `jogador` é o nome de quem
 chamou (inclusive o próprio remetente recebe — o cliente ignora quando
 `jogador === meuNome`, já que ele mesmo já sabe pelo ack de `jogarDeNovo`).
-Quem recebe decide: **sim**, manda um `entrarSala` normal com
-`salaId: novaSalaId`; **não**, sai da sala que terminou (mesmo caminho de
-`sairDaPartida` — ver seção de `jogarCarta`/timeout acima). Não existe um
-evento de resposta dedicado: as duas opções só reusam eventos que já
-existem.
+Quem recebe decide: **sim**, manda `sairDaPartida` na sala que terminou
+(best-effort — a sala já era, o assento não importa mais) e só depois
+`entrarSala` com `salaId: novaSalaId` — nessa ordem, porque o servidor só
+tira o socket da room antiga enquanto ainda pensa que ele está nela (ver
+"Limpeza de sala após o fim da partida" abaixo); **não**, sai da sala que
+terminou (mesmo caminho de `sairDaPartida` — ver seção de `jogarCarta`/
+timeout acima). Não existe um evento de resposta dedicado: as duas opções
+só reusam eventos que já existem.
+
+### Limpeza de sala após o fim da partida
+
+Depois que `jogoFinalizado` dispara (`GameController.finalizada` vira
+`true`), a sala continua existindo — dá pra `jogarDeNovo` (só o adm) ou só
+sair. Mas assim que **nenhum socket** continuar conectado na room dela
+(cada jeito de sair de uma sala terminada — `sairDaPartida`, aceitar ou
+recusar um convite de revanche, ou só fechar a aba — tira o socket da room),
+o servidor descarta a sala do sistema na mesma hora: some do `SalaManager`,
+e `jogarDeNovo`/`reconectar`/`chat`/`entrarSala` nela passam a devolver
+`SALA_NAO_ENCONTRADA` a partir daí. Diferente da expiração de vaga
+reservada (ver acima), isso não depende de nenhum timer — é conferido na
+hora, toda vez que um socket sai da room de uma sala já finalizada.
 
 ### Rodada de 1 carta ("testa" / rodada cega)
 

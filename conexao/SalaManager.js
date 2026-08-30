@@ -140,7 +140,7 @@ export class SalaManager {
         // GameController._expirarVaga) — a sala já era, tira ela do sistema
         // na mesma hora. O jogo em si (bot contra bot a essa altura) termina
         // sozinho em segundo plano, sem custo real.
-        sala.controller.on('salaAbandonada', () => this.salas.delete(salaId));
+        sala.controller.on('salaAbandonada', () => this.removerSala(salaId));
         this._entrar(sala, player);
         sala.jogadores[0].adm = true;
 
@@ -380,6 +380,16 @@ export class SalaManager {
 
     obterSala(salaId) {
         return this.salas.get(salaId) ?? null;
+    }
+
+    // Descarta a sala do sistema incondicionalmente — chamado quando não
+    // sobra mais ninguém real (ver o listener de 'salaAbandonada' em
+    // criarSala) ou, de fora (socketServer.js), quando a partida já
+    // terminou (`controller.finalizada`) e o último socket saiu dela (ver
+    // encerrarSeFinalizadaEVazia). Idempotente: chamar de novo, ou com um
+    // salaId que já não existe, não faz nada.
+    removerSala(salaId) {
+        this.salas.delete(salaId);
     }
 
     // Salas que ainda aceitam gente: não iniciadas e não cheias. Resumo

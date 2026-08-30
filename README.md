@@ -148,6 +148,11 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
   removida do sistema na mesma hora (some de tudo, `SALA_NAO_ENCONTRADA` daí
   em diante); o jogo, agora só bot contra bot, termina sozinho em segundo
   plano.
+- ✅ **Limpeza de sala após o fim da partida**: uma `Sala` finalizada
+  (`jogoFinalizado` já disparou) não fica mais presa pra sempre no `Map` do
+  `SalaManager`. Assim que ninguém mais estiver conectado na room dela —
+  saiu, recusou ou aceitou a revanche, ou só fechou a aba — a sala é
+  descartada do sistema na hora, sem depender de nenhum timer.
 - ✅ Interface web em React funcionando ponta a ponta (login, lobby, partida).
 
 ## Ferramentas de debug (linha de comando)
@@ -166,12 +171,6 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
   placeholder burro (sempre a última carta, sempre aposta 1). A estrutura já
   tá pronta pra trocar isso sem mexer em mais nada; o plano é evoluir pra uma
   estratégia melhor e, mais pra frente, treinar com ML.
-- **Limpar sala depois que a partida termina** — hoje uma `Sala` finalizada
-  fica pra sempre no `Map` do `SalaManager` (só some da listagem, não da
-  memória) — e agora que existe "jogar de novo", cada revanche cria uma sala
-  nova sem nunca descartar a antiga, piorando o acúmulo. Vira descartável
-  quando não tiver mais ninguém nela, ou depois de um tempo sem ninguém
-  pedir revanche.
 - Subir o servidor num ambiente de verdade, com sockets web funcionando fora
   da rede local (hoje só foi testado em `localhost`).
 
