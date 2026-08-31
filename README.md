@@ -113,87 +113,27 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
 ## Status atual
 
 - ✅ Motor de jogo completo: apostas, vazas, manilha, eliminação por hp.
-- ✅ Autenticação (login/cadastro com senha em hash) e sessão via JWT.
-- ✅ Login em etapas, estilo Pokémon Showdown: digita só o nome primeiro
-  (`verificarNome`); se já existe conta, pede senha pra confirmar identidade
-  (`entrar`); se não existe, pergunta se quer registrar (`cadastrar`) ou
-  seguir sem conta como **convidado** (`entrarComoConvidado` — Player só em
-  memória, id negativo, nunca grava no banco). Não existe botão de "guest"
-  solto — é sempre consequência de responder "não" à oferta de cadastro.
+- ✅ Autenticação (login/cadastro com senha em hash), sessão via JWT
+  retomável sem senha de novo depois de um F5 ou queda de rede
+  (`retomarSessao`).
+- ✅ Login em etapas: nome primeiro, depois senha (conta existente) ou
+  oferta de cadastro/convidado (conta nova).
 - ✅ Salas multiplayer ponta a ponta: criar, entrar, listar, sair, início
-  automático quando lota (ou forçado pelo dono).
-- ✅ **Partida rápida**: fila compartilhada de sala com config default — quem
-  clica primeiro cria, quem clica depois entra na mesma até ela lotar; o
-  jeito manual de criar sala continua existindo do lado do cliente.
-- ✅ Partida real via socket.io: jogadas, mão privada por jogador, vazas,
-  placar, tudo em tempo real.
-- ✅ Timeout de turno com jogada automática (placeholder simples) + jogador
-  expulso por inatividade de verdade (várias faltas seguidas, não uma só) +
-  reconexão de quem caiu no meio da partida, exatamente do mesmo jeito.
-- ✅ **Jogar de novo**: quando a partida termina, o dono da sala pode criar
-  uma sala nova com a mesma config (incluindo o mesmo número de bots) e
-  ficar esperando nela; quem mais estava na sala antiga recebe um convite
-  (sim entra na sala nova, não sai pro menu).
-- ✅ Estrutura de bots pronta (pasta `bots/`, `botNumber` na criação de sala,
-  campo pra escolher no lobby): um bot entra igual um jogador, sem socket, e
-  assume o assento de um jogador de verdade quando ele é expulso por
-  inatividade. Falta só a inteligência de verdade (ver "o que falta fazer").
-- ✅ **Expiração de vaga reservada**: depois que um assento vira bot
-  (`jogadorExpulsoPorInatividade`, por inatividade real ou `sairDaPartida`),
-  a vaga fica reservada por `tempoReservaMs` (150s por padrão). Sem
-  `reconectar` real nesse prazo, o servidor avisa (`vagaExpirada`) e a vaga
-  não pode mais ser reclamada — `reconectar` passa a devolver `VAGA_EXPIRADA`
-  e `minhaSalaAtiva` para de oferecer aquela sala pro cliente (sem botão de
-  reconectar automático). Não existe "outra pessoa pode entrar no lugar" —
-  decisão consciente: ninguém quer pegar uma mão alheia no meio de uma
-  partida. Se essa era a última vaga de gente de verdade da sala, ela é
-  removida do sistema na mesma hora (some de tudo, `SALA_NAO_ENCONTRADA` daí
-  em diante); o jogo, agora só bot contra bot, termina sozinho em segundo
-  plano.
-- ✅ **Limpeza de sala após o fim da partida**: uma `Sala` finalizada
-  (`jogoFinalizado` já disparou) não fica mais presa pra sempre no `Map` do
-  `SalaManager`. Assim que ninguém mais estiver conectado na room dela —
-  saiu, recusou ou aceitou a revanche, ou só fechou a aba — a sala é
-  descartada do sistema na hora, sem depender de nenhum timer.
-- ✅ **Sucessão de adm durante a partida**: se quem é adm tiver a vaga
-  expirada (ver acima), o posto passa pro próximo jogador de verdade na
-  ordem de entrada (`novoAdm`) — nunca fica preso num assento que virou bot
-  pra sempre. Enquanto a vaga só está reservada (ainda não expirou), o adm
-  não muda: ele recupera o posto sozinho ao reconectar, porque a flag nunca
-  saiu dele.
-- ✅ **Cooldown de chat no servidor**: `chatCooldownMs` (`SalaManager`, 3s
-  por padrão, mesmo valor do `CHAT_COOLDOWN_MS` cosmético do front) —
-  contado por jogador, não por sala, pra não dar pra dobrar o limite
-  entrando em duas salas ao mesmo tempo. Um envio antes do prazo devolve
-  `CHAT_EM_COOLDOWN` sem sair `chatMensagem` nenhum; um envio rejeitado por
-  conteúdo inválido não consome o relógio de quem já estava esperando.
-- ✅ **Indicador visual de assento em bot**: quando `jogadorExpulsoPorInatividade`
-  dispara (inatividade real ou "Sair da partida" — mesmo evento pros dois
-  casos), o front marca aquele jogador com 🤖 na lista de status até um
-  `jogadorReconectou` desfazer. O servidor também loga no console
-  (`[Sala X] fulano desconectou — um bot assumiu o lugar dele.`) — não é
-  protocolo novo, só consumo de um evento que já existia.
-- ✅ **Feedback visual de conexão perdida**: `Server.js` encolheu
-  `pingInterval`/`pingTimeout` do socket.io (padrão 25s + 20s = 45s de pior
-  caso) pra 10s + 15s (~25s de pior caso) — rápido o bastante pra o
-  `disconnect` chegar no cliente sem demorar uma eternidade. `socket.js`
-  escuta `connect`/`disconnect` e expõe isso como um estado assinável
-  (`useSyncExternalStore`); `App.jsx` mostra um banner "conexão perdida"
-  independente da tela atual, some sozinho quando reconectar.
-- ✅ **Sessão retomável sem nome/senha de novo** (`retomarSessao`, ver
-  `conexao/PROTOCOLO.md`): fecha o ciclo que o item acima deixava em aberto
-  ("quem caiu ainda precisa entrar de novo"). Um token já emitido
-  (`entrar`/`cadastrar`/`entrarComoConvidado`/`retomarSessao` anterior)
-  reautentica o socket sem credenciais — e cada retomada devolve um token
-  novo, então uma sessão ativa nunca esbarra na expiração fixa de 6h. Dois
-  gatilhos automáticos no front: um F5 na mesma aba (sessão guardada em
-  `sessionStorage` — isolado por aba, mesma filosofia de sempre, mas agora
-  sobrevive a um recarregamento — ver `public/app/src/sessao.js`) e uma
-  reconexão de rede que já estava autenticada (o socket muda de id sozinho;
-  sem isso a próxima ação devolveria `NAO_IDENTIFICADO` do nada). Nos dois
-  casos, se havia uma partida em andamento, `Partida.jsx` também chama
-  `reconectar` sozinho pra voltar a receber os eventos dela — a tela nunca
-  fica "viva por fora, surda por dentro".
+  automático (ou forçado pelo dono).
+- ✅ Partida rápida: fila compartilhada de sala com config default.
+- ✅ Partida real via socket.io: jogadas, mão privada, vazas, placar em
+  tempo real.
+- ✅ Timeout de turno + expulsão por inatividade + reconexão de quem caiu.
+- ✅ Jogar de novo: sala nova com a mesma config, convite pra quem ficou.
+- ✅ Bots preenchem assento e assumem quem for expulso por inatividade —
+  falta só a inteligência de verdade (ver "o que falta fazer").
+- ✅ Vaga fica reservada por um tempo depois de virar bot; expirando sem
+  reconectar, não pode mais ser reclamada e, se não sobrar ninguém real, a
+  sala é descartada sozinha.
+- ✅ Sala é removida do sistema assim que a partida termina e todo mundo sai
+  dela.
+- ✅ Adm passa pro próximo jogador de verdade se a vaga do adm atual expirar.
+- ✅ Cooldown de chat aplicado no servidor, não só de fachada no front.
 - ✅ Interface web em React funcionando ponta a ponta (login, lobby, partida).
 
 ## Ferramentas de debug (linha de comando)
