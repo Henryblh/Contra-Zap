@@ -159,6 +159,22 @@ button.secundario {
     color: var(--erro);
 }
 
+.status-jogador-bot {
+    border-color: var(--acento);
+    color: var(--acento);
+}
+
+.banner-conexao {
+    margin-bottom: 16px;
+    padding: 10px 16px;
+    border-radius: 8px;
+    background: var(--erro);
+    color: #1a1a1a;
+    font-size: 13px;
+    font-weight: 600;
+    text-align: center;
+}
+
 .log {
     background: #0f1015;
     border: 1px solid var(--borda);

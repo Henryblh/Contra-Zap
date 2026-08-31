@@ -84,12 +84,14 @@ conexao/           -> camada de sala/rede, separada das regras do jogo
   login.js            -> autentica nome/senha contra o banco e emite token de sessão
   cadastro.js         -> cria conta nova (nome/senha) e já autentica, mesmo formato do login
   convidado.js        -> login "convidado": só nome, Player só em memória (id negativo), nunca grava no banco
+  retomarSessao.js    -> reautentica um socket a partir de um token já emitido, sem nome/senha
   SalaManager.js      -> cria salas e valida entrada de jogadores (sem saber de socket.io)
   socketServer.js     -> liga o protocolo a sockets de verdade (única peça que conhece socket.io)
   chat/               -> validação e catálogo de mensagens do chat de sala
 public/app/        -> código-fonte do front-end (React + Vite)
   src/App.jsx         -> componente raiz
   src/socket.js       -> conexão socket.io-client com o back-end
+  src/sessao.js       -> persistência da sessão (sessionStorage) e retomada depois de reconexão/F5
   src/components/     -> telas (Login, Lobby, Partida)
 public/dist/       -> build do front-end (gerado por `npm run build`, servido pelo Server.js)
 Server.js          -> servidor web (Express + Socket.io), liga `conexao/socketServer.js`
@@ -165,6 +167,33 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
   entrando em duas salas ao mesmo tempo. Um envio antes do prazo devolve
   `CHAT_EM_COOLDOWN` sem sair `chatMensagem` nenhum; um envio rejeitado por
   conteúdo inválido não consome o relógio de quem já estava esperando.
+- ✅ **Indicador visual de assento em bot**: quando `jogadorExpulsoPorInatividade`
+  dispara (inatividade real ou "Sair da partida" — mesmo evento pros dois
+  casos), o front marca aquele jogador com 🤖 na lista de status até um
+  `jogadorReconectou` desfazer. O servidor também loga no console
+  (`[Sala X] fulano desconectou — um bot assumiu o lugar dele.`) — não é
+  protocolo novo, só consumo de um evento que já existia.
+- ✅ **Feedback visual de conexão perdida**: `Server.js` encolheu
+  `pingInterval`/`pingTimeout` do socket.io (padrão 25s + 20s = 45s de pior
+  caso) pra 10s + 15s (~25s de pior caso) — rápido o bastante pra o
+  `disconnect` chegar no cliente sem demorar uma eternidade. `socket.js`
+  escuta `connect`/`disconnect` e expõe isso como um estado assinável
+  (`useSyncExternalStore`); `App.jsx` mostra um banner "conexão perdida"
+  independente da tela atual, some sozinho quando reconectar.
+- ✅ **Sessão retomável sem nome/senha de novo** (`retomarSessao`, ver
+  `conexao/PROTOCOLO.md`): fecha o ciclo que o item acima deixava em aberto
+  ("quem caiu ainda precisa entrar de novo"). Um token já emitido
+  (`entrar`/`cadastrar`/`entrarComoConvidado`/`retomarSessao` anterior)
+  reautentica o socket sem credenciais — e cada retomada devolve um token
+  novo, então uma sessão ativa nunca esbarra na expiração fixa de 6h. Dois
+  gatilhos automáticos no front: um F5 na mesma aba (sessão guardada em
+  `sessionStorage` — isolado por aba, mesma filosofia de sempre, mas agora
+  sobrevive a um recarregamento — ver `public/app/src/sessao.js`) e uma
+  reconexão de rede que já estava autenticada (o socket muda de id sozinho;
+  sem isso a próxima ação devolveria `NAO_IDENTIFICADO` do nada). Nos dois
+  casos, se havia uma partida em andamento, `Partida.jsx` também chama
+  `reconectar` sozinho pra voltar a receber os eventos dela — a tela nunca
+  fica "viva por fora, surda por dentro".
 - ✅ Interface web em React funcionando ponta a ponta (login, lobby, partida).
 
 ## Ferramentas de debug (linha de comando)
@@ -191,16 +220,6 @@ polimento.
   estratégia melhor e, mais pra frente, treinar com ML.
 - Subir o servidor num ambiente de verdade, com sockets web funcionando fora
   da rede local (hoje só foi testado em `localhost`).
-- O JWT emitido em `entrar`/`cadastrar`/`entrarComoConvidado` nunca é
-  validado em produção (`validarToken`, em `login.js`, só é chamado no
-  teste) — e o front nem guarda o token (de propósito, ver `socket.js`).
-  Hoje ele não serve pra nada além de existir; se a ideia é reaproveitar
-  sessão depois de uma queda de conexão sem pedir nome/senha de novo, esse é
-  o gancho certo.
-- `socket.js` não escuta `disconnect`/`reconnect` do socket.io-client —
-  precisa expor isso como uma flag de estado de conexão pro front consumir,
-  pra dar algum feedback visual quando a rede cai (hoje o jogador só percebe
-  quando uma ação falhar).
 
 
 ### PIN — só mexer se alguém reclamar

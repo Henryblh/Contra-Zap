@@ -5,6 +5,7 @@
 import { login, ErroLogin } from './login.js';
 import { cadastrar, ErroCadastro } from './cadastro.js';
 import { entrarComoConvidado, ErroConvidado } from './convidado.js';
+import { retomarSessao, ErroSessao } from './retomarSessao.js';
 import { usuarioExiste } from './db.js';
 import { SalaManager, ErroSala } from './SalaManager.js';
 import { ErroChat } from './chat/chat.js';
@@ -84,6 +85,20 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
                 const { token, player } = entrarComoConvidado(nome);
                 autenticarSocket(player);
                 return { nome: player.nome, token };
+            });
+        });
+
+        socket.on(EventosCliente.RETOMAR_SESSAO, ({ token } = {}, ack) => {
+            responder(ack, () => {
+                // Mesmo formato de entrar/cadastrar/entrarComoConvidado — a
+                // diferença é só de onde vem o Player (decodificado do
+                // token em vez de checado contra o banco). autenticarSocket
+                // associa este socket.id (novo, se veio de uma reconexão)
+                // ao mesmo id de jogador de sempre — é o que permite
+                // continuar de onde parou sem pedir nome/senha de novo.
+                const { token: novoToken, player } = retomarSessao(token);
+                autenticarSocket(player);
+                return { nome: player.nome, token: novoToken };
             });
         });
 
@@ -420,7 +435,11 @@ function ligarControllerASala(io, salaManager, sala, socketPorJogador, salaPorSo
     // mais olhando. A vaga na partida (controller.jogadores) não muda —
     // só a presença do socket na room — então "reconectar" continua
     // funcionando normalmente depois.
-    controller.on(EventosServidor.JOGADOR_EXPULSO_POR_INATIVIDADE, ({ id }) => {
+    controller.on(EventosServidor.JOGADOR_EXPULSO_POR_INATIVIDADE, ({ id, jogador }) => {
+        // Mesmo evento pra inatividade de verdade e pra "Sair da partida"
+        // (ver PROTOCOLO.md) — não dá pra saber qual dos dois foi só pelo
+        // payload, e a mensagem serve pros dois igual.
+        console.log(`[Sala ${salaId}] ${jogador} desconectou — um bot assumiu o lugar dele.`);
         const socketId = socketPorJogador.get(id);
         if (!socketId || salaPorSocket.get(socketId) !== salaId) return;
         io.sockets.sockets.get(socketId)?.leave(salaId);
@@ -454,7 +473,8 @@ function ligarControllerASala(io, salaManager, sala, socketPorJogador, salaPorSo
 
 // Executa `acao` e devolve o resultado pro cliente via ack, sempre no
 // formato { ok: true, ...resultado } ou { ok: false, codigo, mensagem }.
-// Erros de domínio conhecidos (ErroLogin, ErroSala, ErroProtocolo) viram
+// Erros de domínio conhecidos (ErroLogin, ErroCadastro, ErroConvidado,
+// ErroSessao, ErroSala, ErroChat, ErroProtocolo) viram
 // resposta de erro normal; qualquer outra exceção é logada no servidor e
 // devolvida como ERRO_INTERNO — nunca deixa a exceção derrubar o socket.
 function responder(ack, acao) {
@@ -463,7 +483,7 @@ function responder(ack, acao) {
         const resultado = acao();
         ack({ ok: true, ...resultado });
     } catch (erro) {
-        if (erro instanceof ErroLogin || erro instanceof ErroCadastro || erro instanceof ErroConvidado || erro instanceof ErroSala || erro instanceof ErroChat || erro instanceof ErroProtocolo) {
+        if (erro instanceof ErroLogin || erro instanceof ErroCadastro || erro instanceof ErroConvidado || erro instanceof ErroSessao || erro instanceof ErroSala || erro instanceof ErroChat || erro instanceof ErroProtocolo) {
             ack({ ok: false, codigo: erro.codigo, mensagem: erro.message });
         } else {
             console.error('Erro inesperado num handler de socket:', erro);

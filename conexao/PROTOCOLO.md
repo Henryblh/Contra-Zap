@@ -44,6 +44,11 @@ jogador.
    pelo resto da conexão. Devolve um token JWT (`conexao/jwt.js`).
    O socket também entra numa sala pessoal `jogador:<id>` — é pra lá que vai
    qualquer informação privada do jogador (hoje só a mão, `suaMao`).
+   Alternativa aos três: `retomarSessao` (só o token, sem nome/senha) — ver
+   seção própria abaixo. É o caminho usado depois de um F5 na página ou de
+   uma reconexão de rede, quando o cliente já tem um token de uma
+   autenticação anterior (de qualquer um dos quatro caminhos, incluindo um
+   `retomarSessao` anterior).
 3. Cliente decide: `criarSala` (vira dono/adm, sala nasce com ele dentro) ou
    `listarSalas` seguido de `entrarSala` num `salaId` da lista.
 4. A cada entrada numa sala, o servidor faz `io.to(salaId).emit('listaJogadores', ...)`
@@ -104,14 +109,50 @@ mesma sala pessoal `jogador:<id>`), então o resto do protocolo (criar/entrar
 em sala, jogar) funciona sem diferença nenhuma. A diferença fica só em
 `conexao/convidado.js`: o `Player` nasce só em memória, com um id negativo
 (nunca colide com os ids `AUTOINCREMENT`, sempre positivos, do banco) e
-**nada é gravado em `banco.sqlite`** — a conta "some" no disconnect ou no
-restart do processo, não sobrevive a um F5 (mesma filosofia de token não
-persistido em `socket.js`, ver seção "Fluxo básico").
+**nada é gravado em `banco.sqlite`**. A identidade em si sobrevive
+normalmente a um F5 na mesma aba (via `retomarSessao`, ver seção própria
+abaixo — o token não depende de banco nenhum) e até a um restart do
+servidor (a assinatura continua batendo, ver `conexao/jwt.js`) — o que se
+perde num restart é qualquer sala/partida em que o convidado estivesse
+(o `Map` do `SalaManager` fica vazio de novo), exatamente como aconteceria
+com uma conta registrada.
 Erros possíveis: `CONVIDADO_INVALIDO` (nome curto demais),
 `NOME_JA_CADASTRADO` (alguém registrou esse exato nome entre o
 `verificarNome` do cliente e esta chamada — corrida rara, mas a checagem
 contra o banco é refeita aqui em vez de confiar só no que o cliente viu
 antes).
+
+### `retomarSessao`
+Payload: `{ token: string }` — um token já emitido por `entrar`, `cadastrar`,
+`entrarComoConvidado` ou por um `retomarSessao` anterior.
+Pré-condição: nenhuma (mesmo nível dos outros três — pode ser o primeiro
+evento da conexão).
+Ack sucesso: `{ ok: true, nome, token }` — mesmo formato dos outros três;
+autentica o socket do mesmo jeito (`autenticarSocket`, mesma sala pessoal
+`jogador:<id>`). O `token` devolvido é **sempre um novo** (mesmo `id`/`nome`
+do antigo, prazo e `jti` novos, ver `conexao/jwt.js`) — é assim que uma
+sessão que continua sendo retomada de tempos em tempos nunca esbarra na
+expiração fixa de 6h do token original.
+
+Existe pra dois casos: um F5 na página (o cliente guarda a sessão em
+`sessionStorage`, isolado por aba — ver `public/app/src/sessao.js` — e tenta
+retomar assim que o socket conecta, antes de mostrar a tela de login de
+novo) e uma reconexão de rede que já estava autenticada (o socket.io-client
+reconecta sozinho com um `socket.id` novo, que o servidor nunca viu — sem
+isto, a próxima ação qualquer devolveria `NAO_IDENTIFICADO` do nada, mesmo
+com a rede já tendo voltado). Nos dois casos, `retomarSessao` só restaura a
+**identidade** do socket (a sala pessoal `jogador:<id>`) — se o jogador
+estava com assento numa sala/partida, o cliente ainda precisa chamar
+`entrarSala`/`reconectar` de novo pra voltar pra room daquela sala
+especificamente (o front já faz isso sozinho — ver `Partida.jsx`).
+
+Não faz distinção nenhuma entre conta registrada, cadastrada na hora ou
+convidado: `validarToken` (`conexao/login.js`) decodifica o `id`/`nome` do
+token sem tocar no banco, então o mesmo caminho serve pros três.
+Erros possíveis: `TOKEN_INVALIDO` (assinatura não bate, token expirado, ou
+veio ausente/malformado — os três casos colapsam no mesmo código, porque o
+cliente reage do mesmo jeito aos três: descarta a sessão salva e volta pro
+login normal).
 
 ### `criarSala`
 Payload: `{ numberPlayers?: number, roundStart?: number, randomShuffle?: boolean, botNumber?: number, chatAberto?: boolean }`
@@ -582,6 +623,7 @@ igual na sala de espera e na partida.
 | `CADASTRO_INVALIDO` | `cadastrar` com nome ou senha menor que 3 caracteres |
 | `NOME_JA_CADASTRADO` | `cadastrar` com nome que já existe no banco; ou `entrarComoConvidado` com nome que virou conta registrada entre o `verificarNome` do cliente e a chamada |
 | `CONVIDADO_INVALIDO` | `entrarComoConvidado` com nome menor que 3 caracteres |
+| `TOKEN_INVALIDO` | `retomarSessao` com token que não bate a assinatura, expirou, ou veio ausente/malformado |
 | `NOME_INVALIDO` | `entrarSala` com nome já em uso *nessa sala* |
 | `CONFIGURACAO_INVALIDA` | `criarSala` com `numberPlayers`/`roundStart`/`botNumber` fora do intervalo aceito, ou `chatAberto` que não é boolean |
 | `SALA_NAO_ENCONTRADA` | `entrarSala`/`forcarInicio`/`sairSala`/`jogarCarta`/`reconectar` com `salaId` que não existe |

@@ -15,6 +15,7 @@ export const EventosCliente = {
     ENTRAR: 'entrar',           // { nome, senha } -> ack: { ok, nome, token }
     CADASTRAR: 'cadastrar',     // { nome, senha } -> ack: { ok, nome, token } — já autentica, sem precisar de "entrar" depois
     ENTRAR_COMO_CONVIDADO: 'entrarComoConvidado', // { nome } -> ack: { ok, nome, token } — pseudo-guest: Player só em memória (id negativo), nunca grava no banco; nasce autenticado igual entrar/cadastrar
+    RETOMAR_SESSAO: 'retomarSessao', // { token } -> ack: { ok, nome, token } — reautentica o socket a partir de um token já emitido (entrar/cadastrar/entrarComoConvidado/retomarSessao anterior), sem pedir nome/senha de novo; devolve sempre um token NOVO (mesmo id/nome, prazo renovado)
     CRIAR_SALA: 'criarSala',    // { numberPlayers, roundStart, randomShuffle, botNumber, chatAberto } -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar, chatAberto } — botNumber preenche o resto dos assentos com bots (ver bots/Bot.js); segundosParaIniciar != null se os bots já lotaram a sala; chatAberto (default false) libera o chat de texto livre da sala
     ENTRAR_SALA: 'entrarSala',  // { salaId } -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar, chatAberto } — segundosParaIniciar != null se esta entrada lotou a sala
     PARTIDA_RAPIDA: 'partidaRapida', // {} -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar, chatAberto } — mesmo formato de criarSala/entrarSala; entra numa fila compartilhada de sala default (config igual criarSala sem parâmetros), criando-a se não houver nenhuma aberta no momento
@@ -85,5 +86,6 @@ export const CodigosErro = {
     CADASTRO_INVALIDO: 'CADASTRO_INVALIDO',           // cadastrar: nome/senha fora do tamanho mínimo aceito
     NOME_JA_CADASTRADO: 'NOME_JA_CADASTRADO',         // cadastrar: nome já existe no banco; ou entrarComoConvidado: nome virou conta registrada entre o verificarNome e esta chamada (corrida com um cadastro concorrente)
     CONVIDADO_INVALIDO: 'CONVIDADO_INVALIDO',         // entrarComoConvidado: nome fora do tamanho mínimo aceito
+    TOKEN_INVALIDO: 'TOKEN_INVALIDO',                 // retomarSessao com token que não bate a assinatura, expirou, ou veio ausente/malformado
     ERRO_INTERNO: 'ERRO_INTERNO',                     // exceção inesperada no servidor (não deveria acontecer)
 };
