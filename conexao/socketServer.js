@@ -7,7 +7,7 @@ import { cadastrar, ErroCadastro } from './cadastro.js';
 import { entrarComoConvidado, ErroConvidado } from './convidado.js';
 import { usuarioExiste } from './db.js';
 import { SalaManager, ErroSala } from './SalaManager.js';
-import { montarMensagemChat, ErroChat } from './chat/chat.js';
+import { ErroChat } from './chat/chat.js';
 import { EventosCliente, EventosServidor, CodigosErro } from './eventos.js';
 
 class ErroProtocolo extends Error {
@@ -283,17 +283,11 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
         socket.on(EventosCliente.CHAT, ({ salaId, tipo, id, texto } = {}, ack) => {
             responder(ack, () => {
                 const player = exigirJogador();
-                const sala = salaManager.obterSala(salaId);
-                if (!sala) {
-                    throw new ErroProtocolo(CodigosErro.SALA_NAO_ENCONTRADA, `Sala "${salaId}" não existe.`);
-                }
-                if (!sala.jogadores.some(jogador => jogador.id === player.id)) {
-                    throw new ErroProtocolo(CodigosErro.NAO_ESTA_NA_SALA, 'Você não está nesta sala.');
-                }
-                // montarMensagemChat valida tipo/id/texto e resolve o texto da
-                // mensagem pronta (ver conexao/chat/chat.js) — lança ErroChat,
-                // que responder() já traduz pro ack de erro.
-                const conteudo = montarMensagemChat({ chatAberto: sala.chatAberto, tipo, id, texto });
+                // salaManager.enviarChat cuida de sala/membership, cooldown
+                // (chatCooldownMs) e conteúdo (tipo/id/texto) — lança
+                // ErroSala ou ErroChat, que responder() já traduz pro ack de
+                // erro (ver conexao/SalaManager.js e conexao/chat/chat.js).
+                const conteudo = salaManager.enviarChat(salaId, player, { tipo, id, texto });
                 io.to(salaId).emit(EventosServidor.CHAT_MENSAGEM, {
                     salaId,
                     jogador: player.nome,

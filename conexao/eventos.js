@@ -79,6 +79,7 @@ export const CodigosErro = {
     APOSTA_FECHA_RODADA: 'APOSTA_FECHA_RODADA', // último a apostar não pode escolher o valor que fecha a soma das apostas no número de cartas
     CHAT_DESABILITADO: 'CHAT_DESABILITADO',   // chat 'aberta' numa sala criada sem chatAberto
     CHAT_INVALIDO: 'CHAT_INVALIDO',           // chat com tipo desconhecido, id fora do catálogo, ou texto vazio/longo demais
+    CHAT_EM_COOLDOWN: 'CHAT_EM_COOLDOWN',     // chat antes de chatCooldownMs passar desde o último envio aceito (qualquer sala, qualquer tipo)
     USUARIO_NAO_ENCONTRADO: 'USUARIO_NAO_ENCONTRADO', // login: nome não existe no banco
     SENHA_INCORRETA: 'SENHA_INCORRETA',               // login: nome existe, senha não bate
     CADASTRO_INVALIDO: 'CADASTRO_INVALIDO',           // cadastrar: nome/senha fora do tamanho mínimo aceito

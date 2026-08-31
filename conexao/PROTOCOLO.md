@@ -454,11 +454,22 @@ Bots não mandam (não têm socket).
   depois de `trim`, precisa ter entre 1 e 200 caracteres (`CHAT_INVALIDO`
   fora disso).
 
+**Cooldown**: `chatCooldownMs` (`SalaManager`, 3s por padrão) entre envios
+*aceitos* — qualquer sala, qualquer tipo, contado por jogador (não por
+sala: entrar em duas salas ao mesmo tempo não dobra o limite). Uma
+tentativa antes do prazo devolve `CHAT_EM_COOLDOWN` sem mandar
+`chatMensagem` nenhum. Só uma mensagem que passou em todas as outras
+validações conta pro relógio — uma tentativa rejeitada por
+`CHAT_INVALIDO`/`CHAT_DESABILITADO` não consome nem estica o prazo de quem
+já estava dentro dele. `CHAT_COOLDOWN_MS` no front (`chatMensagens.js`) é
+só cosmético (desabilita os botões na hora); quem decide de verdade é o
+servidor — os dois valores precisam ficar sincronizados manualmente.
+
 Ack sucesso: `{ ok: true }`. O servidor então faz `chatMensagem` pra sala
 inteira, **incluindo quem enviou** (o cliente não renderiza otimista — espera
 o broadcast, igual ao resto do protocolo).
 Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`, `NAO_ESTA_NA_SALA`,
-`CHAT_DESABILITADO`, `CHAT_INVALIDO`.
+`CHAT_DESABILITADO`, `CHAT_INVALIDO`, `CHAT_EM_COOLDOWN`.
 
 ## Eventos servidor -> cliente
 
@@ -589,6 +600,7 @@ igual na sala de espera e na partida.
 | `APOSTA_FECHA_RODADA` | `apostar` pelo último da rodada com `valor` que fecharia a soma de todo mundo no número de cartas |
 | `CHAT_DESABILITADO` | `chat` com `tipo: 'aberta'` numa sala criada sem `chatAberto` |
 | `CHAT_INVALIDO` | `chat` com `tipo` desconhecido, `id` fora do catálogo, ou `texto` vazio/maior que 200 caracteres |
+| `CHAT_EM_COOLDOWN` | `chat` antes de `chatCooldownMs` passar desde o último envio aceito (qualquer sala, qualquer tipo, por jogador) |
 | `ERRO_INTERNO` | Exceção inesperada no servidor — não deveria acontecer; se aparecer, é bug |
 
 ## O que fica fora deste marco (decisão adiada, não esquecida)

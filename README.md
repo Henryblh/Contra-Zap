@@ -159,6 +159,12 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
   pra sempre. Enquanto a vaga só está reservada (ainda não expirou), o adm
   não muda: ele recupera o posto sozinho ao reconectar, porque a flag nunca
   saiu dele.
+- ✅ **Cooldown de chat no servidor**: `chatCooldownMs` (`SalaManager`, 3s
+  por padrão, mesmo valor do `CHAT_COOLDOWN_MS` cosmético do front) —
+  contado por jogador, não por sala, pra não dar pra dobrar o limite
+  entrando em duas salas ao mesmo tempo. Um envio antes do prazo devolve
+  `CHAT_EM_COOLDOWN` sem sair `chatMensagem` nenhum; um envio rejeitado por
+  conteúdo inválido não consome o relógio de quem já estava esperando.
 - ✅ Interface web em React funcionando ponta a ponta (login, lobby, partida).
 
 ## Ferramentas de debug (linha de comando)
@@ -185,9 +191,6 @@ polimento.
   estratégia melhor e, mais pra frente, treinar com ML.
 - Subir o servidor num ambiente de verdade, com sockets web funcionando fora
   da rede local (hoje só foi testado em `localhost`).
-- O cooldown de chat (`CHAT_COOLDOWN_MS`) só existe no front — o servidor
-  aceita qualquer volume de `chat` que passe na validação de tipo/tamanho.
-  Um cliente customizado pode spammar a sala inteira sem limite nenhum.
 - O JWT emitido em `entrar`/`cadastrar`/`entrarComoConvidado` nunca é
   validado em produção (`validarToken`, em `login.js`, só é chamado no
   teste) — e o front nem guarda o token (de propósito, ver `socket.js`).
