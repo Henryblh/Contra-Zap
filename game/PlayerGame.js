@@ -6,6 +6,13 @@ export class PlayerGame extends Player {
         super(playerBase.nome, playerBase.senha, playerBase.rate);
         this.id = playerBase.id;
         this.bot = playerBase.bot;
+        // Fixo pro resto da vida deste PlayerGame, ao contrário de `bot`
+        // (que liga/desliga em jogador de verdade — ver GameController):
+        // true só quando o assento nasceu de um bots/Bot.js de verdade.
+        // GameController usa isto pra saber quem NUNCA vai reconectar,
+        // então nunca conta contra "sobrou alguém real pra voltar" (ver
+        // _expirarVaga).
+        this.eraBot = playerBase.bot === true;
 
         this.hp = 3;
         this._steak = 0;
@@ -15,6 +22,7 @@ export class PlayerGame extends Player {
         this.desconectado = false;
         this.ultimaAcaoEm = Date.now();
         this.expulsoPorInatividade = false;
+        this.vagaExpirada = false;
     }
 
     comprarCarta(carta) {
@@ -60,4 +68,12 @@ export class PlayerGame extends Player {
     // timeout enquanto ela continuar sumida. Desliga só numa ação real.
     get expulsoPorInatividade() {return this._expulsoPorInatividade;}
     set expulsoPorInatividade(valor) {this._expulsoPorInatividade = valor;}
+
+    // true depois que tempoReservaMs passou desde que virou bot sem ninguém
+    // reconectar (ver GameController._expirarVaga) — a vaga não pode mais
+    // ser reclamada por reconectar, mesmo que o jogador ainda esteja em
+    // `jogadores`. Desliga só recriando a partida (não existe caminho de
+    // volta pra true -> false aqui).
+    get vagaExpirada() {return this._vagaExpirada;}
+    set vagaExpirada(valor) {this._vagaExpirada = valor;}
 }

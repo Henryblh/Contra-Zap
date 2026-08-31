@@ -8,6 +8,7 @@ import { randomUUID } from 'node:crypto';
 import { GameController } from '../game/GameController.js';
 import { Bot } from '../bots/Bot.js';
 import { CodigosErro } from './eventos.js';
+import { montarMensagemChat, ErroChat } from './chat/chat.js';
 
 export class ErroSala extends Error {
     constructor(codigo, mensagem) {
@@ -20,6 +21,7 @@ export class ErroSala extends Error {
 const NUMERO_JOGADORES_MIN = 2;
 const NUMERO_JOGADORES_MAX = 6;
 const TEMPO_ESPERA_INICIO_MS_PADRAO = 15_000;
+const CHAT_COOLDOWN_MS_PADRAO = 3_000;
 
 function validarConfig({ numberPlayers, roundStart, botNumber, chatAberto }) {
     if (!Number.isInteger(numberPlayers) || numberPlayers < NUMERO_JOGADORES_MIN || numberPlayers > NUMERO_JOGADORES_MAX) {
@@ -77,7 +79,7 @@ class Sala {
 }
 
 export class SalaManager {
-    constructor({ tempoEsperaInicioMs = TEMPO_ESPERA_INICIO_MS_PADRAO, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs } = {}) {
+    constructor({ tempoEsperaInicioMs = TEMPO_ESPERA_INICIO_MS_PADRAO, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs, tempoReservaMs, chatCooldownMs = CHAT_COOLDOWN_MS_PADRAO } = {}) {
         this.salas = new Map();
         this.tempoEsperaInicioMs = tempoEsperaInicioMs;
         // undefined = deixa o GameController usar o próprio default (15s).
@@ -90,6 +92,18 @@ export class SalaManager {
         // undefined = deixa o GameController usar o próprio default (1s).
         // Mesmo motivo do tempoTurnoMs acima.
         this.atrasoBotMs = atrasoBotMs;
+        // undefined = deixa o GameController usar o próprio default (150s).
+        // Mesmo motivo do tempoTurnoMs acima.
+        this.tempoReservaMs = tempoReservaMs;
+        // Cooldown entre envios de chat aceitos (qualquer sala, qualquer
+        // tipo) — ver enviarChat. Diferente dos tempos acima, tem default
+        // aqui mesmo (não delegado ao GameController): chat é da camada de
+        // conexão, não do jogo (ver conexao/chat/chat.js).
+        this.chatCooldownMs = chatCooldownMs;
+        // playerId -> Date.now() do último chat aceito por ele — um cooldown
+        // só por pessoa, não por sala, pra não dar pra escapar criando uma
+        // segunda sala só pra spammar em paralelo.
+        this._ultimoChatPorJogador = new Map();
         // salaId da sala "da fila" de partidaRapida (ver método abaixo), ou
         // null se ninguém pediu partida rápida ainda. Não precisa ser
         // invalidado explicitamente quando a sala lota/descarta — partidaRapida
@@ -129,9 +143,15 @@ export class SalaManager {
             tempoTurnoMs: this.tempoTurnoMs,
             limiteInatividadeMs: this.limiteInatividadeMs,
             atrasoBotMs: this.atrasoBotMs,
+            tempoReservaMs: this.tempoReservaMs,
         });
 
         this.salas.set(salaId, sala);
+        // Não sobrou ninguém real que possa voltar (ver
+        // GameController._expirarVaga) — a sala já era, tira ela do sistema
+        // na mesma hora. O jogo em si (bot contra bot a essa altura) termina
+        // sozinho em segundo plano, sem custo real.
+        sala.controller.on('salaAbandonada', () => this.removerSala(salaId));
         this._entrar(sala, player);
         sala.jogadores[0].adm = true;
 
@@ -312,6 +332,9 @@ export class SalaManager {
         if (!sala.iniciada) {
             throw new ErroSala(CodigosErro.SALA_NAO_INICIADA, 'Essa sala ainda não começou — use entrarSala.');
         }
+        if (sala.controller.vagaExpirada(player.id)) {
+            throw new ErroSala(CodigosErro.VAGA_EXPIRADA, 'Sua vaga nessa partida expirou — não é mais possível reconectar.');
+        }
 
         const estado = sala.controller.estadoDeReconexao(player.id);
         if (!estado) {
@@ -366,8 +389,47 @@ export class SalaManager {
         return sala;
     }
 
+    // Chat de sala — vale tanto na sala de espera quanto com a partida em
+    // andamento (ver conexao/PROTOCOLO.md). `montarMensagemChat` (ver
+    // conexao/chat/chat.js) valida o conteúdo em si (tipo/id/texto) e lança
+    // ErroChat; aqui só cuida do que é específico de sala — quem manda
+    // precisa estar nela — e do cooldown (chatCooldownMs), pra um cliente
+    // customizado não conseguir spammar a sala inteira sem limite nenhum. O
+    // relógio do cooldown só anda numa mensagem ACEITA: uma tentativa
+    // inválida (CHAT_INVALIDO/CHAT_DESABILITADO) não consome nem estica o
+    // prazo de quem já estava dentro dele.
+    enviarChat(salaId, player, { tipo, id, texto }) {
+        const sala = this.salas.get(salaId);
+        if (!sala) {
+            throw new ErroSala(CodigosErro.SALA_NAO_ENCONTRADA, `Sala "${salaId}" não existe.`);
+        }
+        if (!sala.jogadores.some(jogador => jogador.id === player.id)) {
+            throw new ErroSala(CodigosErro.NAO_ESTA_NA_SALA, 'Você não está nesta sala.');
+        }
+
+        const agora = Date.now();
+        const ultimoEnvio = this._ultimoChatPorJogador.get(player.id);
+        if (ultimoEnvio !== undefined && agora - ultimoEnvio < this.chatCooldownMs) {
+            throw new ErroChat(CodigosErro.CHAT_EM_COOLDOWN, 'Aguarde um pouco antes de mandar outra mensagem.');
+        }
+
+        const conteudo = montarMensagemChat({ chatAberto: sala.chatAberto, tipo, id, texto });
+        this._ultimoChatPorJogador.set(player.id, agora);
+        return conteudo;
+    }
+
     obterSala(salaId) {
         return this.salas.get(salaId) ?? null;
+    }
+
+    // Descarta a sala do sistema incondicionalmente — chamado quando não
+    // sobra mais ninguém real (ver o listener de 'salaAbandonada' em
+    // criarSala) ou, de fora (socketServer.js), quando a partida já
+    // terminou (`controller.finalizada`) e o último socket saiu dela (ver
+    // encerrarSeFinalizadaEVazia). Idempotente: chamar de novo, ou com um
+    // salaId que já não existe, não faz nada.
+    removerSala(salaId) {
+        this.salas.delete(salaId);
     }
 
     // Salas que ainda aceitam gente: não iniciadas e não cheias. Resumo
@@ -395,7 +457,11 @@ export class SalaManager {
     // complexidade de devolver uma lista ainda.
     salaAtivaDoJogador(playerId) {
         for (const sala of this.salas.values()) {
-            if (sala.iniciada && sala.jogadores.some(jogador => jogador.id === playerId)) {
+            // vagaExpirada de fora conta como "não tem mais o que descobrir
+            // aqui" — sem isso o cliente continuaria recebendo essa sala como
+            // "dá pra reconectar" pra sempre, mesmo depois de tempoReservaMs
+            // (ver GameController._expirarVaga).
+            if (sala.iniciada && sala.jogadores.some(jogador => jogador.id === playerId && !jogador.vagaExpirada)) {
                 return sala.salaId;
             }
         }

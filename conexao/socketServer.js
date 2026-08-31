@@ -7,7 +7,7 @@ import { cadastrar, ErroCadastro } from './cadastro.js';
 import { entrarComoConvidado, ErroConvidado } from './convidado.js';
 import { usuarioExiste } from './db.js';
 import { SalaManager, ErroSala } from './SalaManager.js';
-import { montarMensagemChat, ErroChat } from './chat/chat.js';
+import { ErroChat } from './chat/chat.js';
 import { EventosCliente, EventosServidor, CodigosErro } from './eventos.js';
 
 class ErroProtocolo extends Error {
@@ -101,7 +101,7 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
                 const sala = salaManager.criarSala(player, config, (salaCriada) => {
                     socket.join(salaCriada.salaId);
                     salaPorSocket.set(socket.id, salaCriada.salaId);
-                    ligarControllerASala(io, salaCriada, socketPorJogador, salaPorSocket);
+                    ligarControllerASala(io, salaManager, salaCriada, socketPorJogador, salaPorSocket);
                 });
                 notificarSala(io, sala);
                 // jogadores vai no próprio ack (não só no broadcast de
@@ -130,7 +130,7 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
                 const { sala, criada } = salaManager.partidaRapida(player, (salaCriada) => {
                     socket.join(salaCriada.salaId);
                     salaPorSocket.set(socket.id, salaCriada.salaId);
-                    ligarControllerASala(io, salaCriada, socketPorJogador, salaPorSocket);
+                    ligarControllerASala(io, salaManager, salaCriada, socketPorJogador, salaPorSocket);
                 });
                 // Entrando numa sala já existente, o join precisa acontecer
                 // aqui mesmo — o gancho acima só roda no caminho de criação.
@@ -214,7 +214,7 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
                 const novaSala = salaManager.jogarDeNovo(salaId, player, (salaCriada) => {
                     socket.join(salaCriada.salaId);
                     salaPorSocket.set(socket.id, salaCriada.salaId);
-                    ligarControllerASala(io, salaCriada, socketPorJogador, salaPorSocket);
+                    ligarControllerASala(io, salaManager, salaCriada, socketPorJogador, salaPorSocket);
                 });
                 // Quem chamou jogarDeNovo sai de verdade da sala que
                 // terminou — o socket não deve mais receber nada dela
@@ -222,6 +222,12 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
                 // quem ficou). salaPorSocket já foi sobrescrito pra apontar
                 // pra sala nova, dentro do aoNascer acima.
                 socket.leave(salaId);
+                // A sala antiga já terminou (é pré-condição de jogarDeNovo) —
+                // se quem chamou era o último socket ainda conectado nela,
+                // pode descartar na hora, sem esperar mais ninguém decidir
+                // aceitar/recusar o convite abaixo (ver
+                // encerrarSeFinalizadaEVazia).
+                encerrarSeFinalizadaEVazia(io, salaManager, salaId);
                 notificarSala(io, novaSala);
                 // Avisa quem mais estava na sala que terminou (broadcast na
                 // room antiga — ninguém saiu dela ainda, exceto quem já tinha
@@ -277,17 +283,11 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
         socket.on(EventosCliente.CHAT, ({ salaId, tipo, id, texto } = {}, ack) => {
             responder(ack, () => {
                 const player = exigirJogador();
-                const sala = salaManager.obterSala(salaId);
-                if (!sala) {
-                    throw new ErroProtocolo(CodigosErro.SALA_NAO_ENCONTRADA, `Sala "${salaId}" não existe.`);
-                }
-                if (!sala.jogadores.some(jogador => jogador.id === player.id)) {
-                    throw new ErroProtocolo(CodigosErro.NAO_ESTA_NA_SALA, 'Você não está nesta sala.');
-                }
-                // montarMensagemChat valida tipo/id/texto e resolve o texto da
-                // mensagem pronta (ver conexao/chat/chat.js) — lança ErroChat,
-                // que responder() já traduz pro ack de erro.
-                const conteudo = montarMensagemChat({ chatAberto: sala.chatAberto, tipo, id, texto });
+                // salaManager.enviarChat cuida de sala/membership, cooldown
+                // (chatCooldownMs) e conteúdo (tipo/id/texto) — lança
+                // ErroSala ou ErroChat, que responder() já traduz pro ack de
+                // erro (ver conexao/SalaManager.js e conexao/chat/chat.js).
+                const conteudo = salaManager.enviarChat(salaId, player, { tipo, id, texto });
                 io.to(salaId).emit(EventosServidor.CHAT_MENSAGEM, {
                     salaId,
                     jogador: player.nome,
@@ -307,20 +307,47 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
             }
 
             // Best-effort: sem cliente do outro lado pra responder erro
-            // nenhum. Se a sala já começou, se o jogador já tinha saído, ou
-            // se a sala nem existe mais, não há nada a fazer — e é
-            // exatamente por isso que não tocamos no estado de uma partida
-            // em andamento aqui: só sairSala numa sala ainda em espera tem
-            // efeito, então cair no meio do jogo não perde o assento
-            // (pré-condição pra reconexão futura).
+            // nenhum. Numa sala ainda em espera, sairSala tira o assento de
+            // verdade. Numa partida em andamento (não finalizada), não
+            // tocamos em nada — cair no meio do jogo não perde o assento
+            // (pré-condição pra reconexão futura); o próprio timeout de
+            // turno já cuida de marcar inatividade normalmente. Já numa
+            // partida FINALIZADA, não existe mais nenhum turno sendo
+            // despachado pra um timeout algum dia pegar essa desconexão —
+            // sem isso, fechar a aba depois de ver o resultado nunca
+            // reservaria/expiraria a vaga, e a sucessão de adm (ver
+            // GameController._transferirAdm) nunca aconteceria pra quem só
+            // fechou a aba sem clicar em nada.
             if (player && salaId) {
-                try {
-                    notificarSala(io, salaManager.sairSala(salaId, player));
-                } catch (erro) {
-                    if (!(erro instanceof ErroSala)) {
-                        console.error('Erro inesperado ao limpar sala no disconnect:', erro);
+                const sala = salaManager.obterSala(salaId);
+                if (sala && sala.controller.finalizada) {
+                    if (!sala.controller.vagaExpirada(player.id)) {
+                        try {
+                            salaManager.abandonarPartida(salaId, player);
+                        } catch (erro) {
+                            if (!(erro instanceof ErroSala)) {
+                                console.error('Erro inesperado ao abandonar partida finalizada no disconnect:', erro);
+                            }
+                        }
+                    }
+                } else {
+                    try {
+                        notificarSala(io, salaManager.sairSala(salaId, player));
+                    } catch (erro) {
+                        if (!(erro instanceof ErroSala)) {
+                            console.error('Erro inesperado ao limpar sala no disconnect:', erro);
+                        }
                     }
                 }
+            }
+
+            // Socket.io já tirou este socket de todas as rooms dele antes de
+            // disparar 'disconnect' — se a sala já tinha terminado e essa era
+            // a última conexão de verdade nela (ex.: fechou a aba depois de
+            // ganhar, sem clicar em nada), pode descartar na hora (ver
+            // encerrarSeFinalizadaEVazia).
+            if (salaId) {
+                encerrarSeFinalizadaEVazia(io, salaManager, salaId);
             }
         });
     });
@@ -339,13 +366,30 @@ function notificarSala(io, sala) {
     });
 }
 
+// Uma sala com partida já finalizada (GameController.finalizada) não serve
+// pra mais nada assim que ninguém segue conectado nela: não existe
+// "reconectar" pra uma partida que já acabou, e cada jeito de sair dela
+// depois do fim (sairDaPartida, recusar/aceitar um convite de revanche, ou
+// só fechar a aba) já tira o socket da room — ver os três pontos que chamam
+// isto. Só o socket.io sabe se a room está vazia (SalaManager não conhece
+// socket nenhum), por isso este helper mora aqui, não em SalaManager.js.
+function encerrarSeFinalizadaEVazia(io, salaManager, salaId) {
+    const sala = salaManager.obterSala(salaId);
+    if (!sala || !sala.controller.finalizada) return;
+
+    const room = io.sockets.adapter.rooms.get(salaId);
+    if (!room || room.size === 0) {
+        salaManager.removerSala(salaId);
+    }
+}
+
 // Assina os eventos do GameController da sala e retransmite pros sockets.
 // Chamado uma vez só, na criação da sala — o controller vive tanto quanto a
 // sala, então essa assinatura vale pro resto da vida dela (espera + partida
 // inteira). Todo evento é broadcast pra sala, exceto cartasDistribuidas e
 // maosReveladas, que são privados por natureza (cada jogador recebe só o que
 // ele pode ver — a própria mão, ou a dos outros na rodada de 1 carta).
-function ligarControllerASala(io, sala, socketPorJogador, salaPorSocket) {
+function ligarControllerASala(io, salaManager, sala, socketPorJogador, salaPorSocket) {
     const { salaId, controller } = sala;
 
     const retransmitir = (evento) => {
@@ -366,6 +410,8 @@ function ligarControllerASala(io, sala, socketPorJogador, salaPorSocket) {
     retransmitir(EventosServidor.JOGADA_AUTOMATICA);
     retransmitir(EventosServidor.JOGADOR_RECONECTOU);
     retransmitir(EventosServidor.JOGADOR_EXPULSO_POR_INATIVIDADE);
+    retransmitir(EventosServidor.VAGA_EXPIRADA);
+    retransmitir(EventosServidor.NOVO_ADM);
 
     // Além do broadcast acima (que avisa a sala toda, inclusive o próprio
     // expulso — o cliente decide navegar pra tela de salas olhando o `id`),
@@ -379,6 +425,11 @@ function ligarControllerASala(io, sala, socketPorJogador, salaPorSocket) {
         if (!socketId || salaPorSocket.get(socketId) !== salaId) return;
         io.sockets.sockets.get(socketId)?.leave(salaId);
         salaPorSocket.delete(socketId);
+        // Se a partida já tinha terminado (ex.: alguém clicou "Sair" depois
+        // de ver o vencedor, ou recusou um convite de revanche) e esse era o
+        // último socket ainda na room, a sala não serve mais pra nada — ver
+        // encerrarSeFinalizadaEVazia.
+        encerrarSeFinalizadaEVazia(io, salaManager, salaId);
     });
 
     controller.on('cartasDistribuidas', (maos) => {

@@ -53,6 +53,8 @@ export const EventosServidor = {
     JOGADA_AUTOMATICA: 'jogadaAutomatica',      // { salaId, id, jogador } — tempoTurnoMs estourou, jogou sozinho
     JOGADOR_RECONECTOU: 'jogadorReconectou',    // { salaId, id, jogador }
     JOGADOR_EXPULSO_POR_INATIVIDADE: 'jogadorExpulsoPorInatividade', // { salaId, id, jogador } — ficou limiteInatividadeMs sem agir; o socket dele já saiu da sala (assento continua, dá pra "reconectar")
+    VAGA_EXPIRADA: 'vagaExpirada', // { salaId, id, jogador } — tempoReservaMs sem reconectar depois de virar bot; a vaga não pode mais ser reclamada, esse assento é bot pro resto da partida
+    NOVO_ADM: 'novoAdm', // { salaId, id, jogador } — o adm anterior teve a vaga expirada (ver VAGA_EXPIRADA); passa pro próximo jogador de verdade (nem bot original, nem com vaga expirada) na ordem de entrada
     CONVITE_REVANCHE: 'convidadoParaRevanche', // { salaId, novaSalaId, jogador } — broadcast na sala TERMINADA (salaId) quando o adm dela chama jogarDeNovo; jogador é o nome de quem chamou, novaSalaId é onde entrar (via entrarSala normal) se aceitar
     CHAT_MENSAGEM: 'chatMensagem',              // { salaId, jogador, tipo: 'aberta' | 'restrita', id: number | null, texto } — broadcast pra sala inteira, incluindo quem enviou
 };
@@ -69,6 +71,7 @@ export const CodigosErro = {
     SALA_NAO_FINALIZADA: 'SALA_NAO_FINALIZADA', // jogarDeNovo antes de jogoFinalizado disparar na sala
     JA_ESTA_NA_SALA: 'JA_ESTA_NA_SALA',
     NAO_ESTA_NA_SALA: 'NAO_ESTA_NA_SALA',   // sairSala por quem não está (mais) nessa sala
+    VAGA_EXPIRADA: 'VAGA_EXPIRADA',         // reconectar depois que tempoReservaMs passou sem ninguém voltar — a vaga virou bot pra sempre, não dá mais pra reclamar
     NAO_AUTORIZADO: 'NAO_AUTORIZADO',       // forcarInicio por quem não é o adm da sala
     NAO_E_SUA_VEZ: 'NAO_E_SUA_VEZ',         // jogarCarta/apostar fora da sua vez
     CARTA_INVALIDA: 'CARTA_INVALIDA',       // jogarCarta com índice fora da mão
@@ -76,6 +79,7 @@ export const CodigosErro = {
     APOSTA_FECHA_RODADA: 'APOSTA_FECHA_RODADA', // último a apostar não pode escolher o valor que fecha a soma das apostas no número de cartas
     CHAT_DESABILITADO: 'CHAT_DESABILITADO',   // chat 'aberta' numa sala criada sem chatAberto
     CHAT_INVALIDO: 'CHAT_INVALIDO',           // chat com tipo desconhecido, id fora do catálogo, ou texto vazio/longo demais
+    CHAT_EM_COOLDOWN: 'CHAT_EM_COOLDOWN',     // chat antes de chatCooldownMs passar desde o último envio aceito (qualquer sala, qualquer tipo)
     USUARIO_NAO_ENCONTRADO: 'USUARIO_NAO_ENCONTRADO', // login: nome não existe no banco
     SENHA_INCORRETA: 'SENHA_INCORRETA',               // login: nome existe, senha não bate
     CADASTRO_INVALIDO: 'CADASTRO_INVALIDO',           // cadastrar: nome/senha fora do tamanho mínimo aceito

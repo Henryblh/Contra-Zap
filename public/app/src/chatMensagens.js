@@ -9,5 +9,10 @@ export const MENSAGENS_PRONTAS = [
     { id: 4, texto: 'Vou fazer na próxima!!' },
 ];
 
-// Cooldown entre envios de chat (qualquer tipo), em ms.
+// Cooldown entre envios de chat (qualquer tipo), em ms — só cosmético
+// (desabilita os botões na hora, sem esperar o ack). O servidor tem o
+// mesmo limite de verdade (`chatCooldownMs` em conexao/SalaManager.js,
+// mesmo valor por padrão) — é ele quem decide de fato, com CHAT_EM_COOLDOWN
+// se alguém tentar contornar isto por fora do cliente normal. Mudou um,
+// mude o outro.
 export const CHAT_COOLDOWN_MS = 3000;

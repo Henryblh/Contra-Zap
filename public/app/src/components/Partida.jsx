@@ -203,6 +203,11 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
                     registrar(`⏱️ ${p.jogador} foi desconectado por inatividade`);
                 }
             },
+            novoAdm(p) {
+                if (!daSala(p)) return;
+                setJogadores((anterior) => anterior.map((j) => ({ ...j, adm: j.nome === p.jogador })));
+                registrar(p.jogador === meuNome ? '👑 Você virou o adm da sala' : `👑 ${p.jogador} virou o adm da sala`);
+            },
         };
 
         // Loga todo evento recebido, com nome e payload — cobre qualquer
@@ -320,11 +325,23 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
         }
     }
 
-    // Sim: entra na sala nova igual um entrarSala normal (o convite não é
-    // mais que isso — o adm já criou a sala, o resto do fluxo é o de sempre).
+    // Sim: primeiro sai de verdade da sala antiga (sairDaPartida,
+    // best-effort — precisa vir ANTES de entrarSala na nova: o servidor só
+    // tira o socket da room antiga se `salaPorSocket` ainda apontar pra ela
+    // nesse momento; se a ordem fosse invertida, o socket já estaria
+    // marcado como pertencendo à sala nova e a saída da antiga seria
+    // ignorada, deixando a room velha presa pra sempre — ver
+    // encerrarSeFinalizadaEVazia em conexao/socketServer.js). Só depois
+    // entra na sala nova, igual um entrarSala normal (o convite não é mais
+    // que isso — o adm já criou a sala, o resto do fluxo é o de sempre).
     async function aceitarConviteRevanche() {
         setErro(null);
         try {
+            try {
+                await chamar('sairDaPartida', { salaId });
+            } catch {
+                // melhor esforço — a sala antiga já terminou, o assento não importa mais
+            }
             const resposta = await chamar('entrarSala', { salaId: conviteRevanche.novaSalaId });
             onEntrouNaSala(conviteRevanche.novaSalaId, resposta.jogadores, resposta.segundosParaIniciar, resposta.chatAberto);
         } catch (erroDaChamada) {

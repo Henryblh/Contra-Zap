@@ -11,8 +11,15 @@ import { Game } from './Game.js';
 import { PlayerGame } from './PlayerGame.js';
 import { escolherCarta, escolherAposta } from '../bots/BotBrain.js';
 
+// Quando a última vaga de gente de verdade expira (ver _expirarVaga) e só
+// sobra bot jogando contra bot, não faz sentido segurar o atrasoBotMs normal
+// só pra ninguém ver — encolhe pra isso aqui, a partida termina sozinha em
+// poucos ticks, e a sala já saiu do SalaManager na mesma hora (ver
+// 'salaAbandonada').
+const ATRASO_BOT_MS_SALA_ABANDONADA = 50;
+
 export class GameController extends EventEmitter {
-    constructor({ numberPlayers, roundStart, randomShuffle, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs } = {}) {
+    constructor({ numberPlayers, roundStart, randomShuffle, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs, tempoReservaMs } = {}) {
         super();
         this.numberPlayers = numberPlayers || 4;
         this.roundStart = roundStart || 3;
@@ -31,6 +38,12 @@ export class GameController extends EventEmitter {
         // ver PlayerGame.bot) — sem isso a mesa inteira de bots resolve uma
         // vaza inteira no mesmo tick, rápido demais pra acompanhar na UI.
         this.atrasoBotMs = atrasoBotMs ?? 2_000;
+        // Quanto tempo (real) uma vaga fica reservada depois de virar bot
+        // (jogadorExpulsoPorInatividade, por inatividade real ou
+        // abandonarPartida) antes de expirar de vez — ver
+        // _iniciarContadorReserva/_expirarVaga. Depois disso, reconectar não
+        // funciona mais pra esse jogador (CodigosErro.VAGA_EXPIRADA).
+        this.tempoReservaMs = tempoReservaMs ?? 150_000;
         this.jogadores = [];
         this.game = null;
         this.rodada = null;
@@ -48,6 +61,8 @@ export class GameController extends EventEmitter {
         // partida), é o que permite distinguir "partida em andamento" de
         // "partida acabou" de fora (ver SalaManager.jogarDeNovo).
         this._finalizada = false;
+        // playerId -> timer do contador de reserva (ver _iniciarContadorReserva).
+        this._timersReserva = new Map();
     }
 
     // Início já agendado (sala lotou) mas partida ainda não começou — o
@@ -189,6 +204,87 @@ export class GameController extends EventEmitter {
         jogador.bot = false;
         jogador.expulsoPorInatividade = false;
         jogador.ultimaAcaoEm = Date.now();
+        // Voltou antes da vaga expirar (ver _iniciarContadorReserva) — cancela
+        // o contador, senão ele dispararia mesmo com o jogador já de volta.
+        this._cancelarContadorReserva(jogador.id);
+    }
+
+    // Começa a contar tempoReservaMs pra essa vaga — chamado nos dois lugares
+    // que emitem jogadorExpulsoPorInatividade (_registrarTimeout e
+    // abandonarPartida). Cancela um contador anterior antes de recomeçar, pra
+    // nunca ter dois rodando pro mesmo jogador ao mesmo tempo.
+    _iniciarContadorReserva(jogador) {
+        this._cancelarContadorReserva(jogador.id);
+        const timer = setTimeout(() => this._expirarVaga(jogador), this.tempoReservaMs);
+        timer.unref?.();
+        this._timersReserva.set(jogador.id, timer);
+    }
+
+    _cancelarContadorReserva(playerId) {
+        const timer = this._timersReserva.get(playerId);
+        if (timer) {
+            clearTimeout(timer);
+            this._timersReserva.delete(playerId);
+        }
+    }
+
+    // tempoReservaMs estourou sem reconectar/jogar de verdade: a vaga não
+    // pode mais ser reclamada (ver vagaExpirada/SalaManager.reconectar) — o
+    // assento continua jogando como bot pelo resto da partida, só que agora
+    // pra sempre. Se essa era a última vaga de gente de verdade (eraBot já
+    // identifica quem nasceu bot de bots/Bot.js, ver PlayerGame), não sobrou
+    // ninguém que possa voltar: encolhe o atraso de bot pra terminar rápido e
+    // avisa quem gerencia o Map de salas (SalaManager) pra tirar esta sala do
+    // sistema na hora, via evento interno — GameController não sabe (nem
+    // precisa saber) o que é um SalaManager.
+    _expirarVaga(jogador) {
+        this._timersReserva.delete(jogador.id);
+        jogador.vagaExpirada = true;
+        this.emit('vagaExpirada', { id: jogador.id, jogador: jogador.nome });
+
+        // Sucessão de adm: só transfere quando a vaga expira de vez, não já
+        // quando ele só virou bot temporário — enquanto durar a reserva ele
+        // continua adm normalmente e recupera isso sozinho ao reconectar,
+        // porque a flag nunca chegou a sair dele.
+        if (jogador.adm) {
+            this._transferirAdm(jogador);
+        }
+
+        if (this.jogadores.every(j => j.eraBot || j.vagaExpirada)) {
+            this.atrasoBotMs = ATRASO_BOT_MS_SALA_ABANDONADA;
+            this.emit('salaAbandonada', {});
+        }
+    }
+
+    // Passa o posto de adm pro próximo jogador de verdade (nem `eraBot`, nem
+    // com `vagaExpirada`) a partir da posição de quem está saindo, na ordem
+    // de entrada — mesma ideia de removerJogador (sala de espera), só que
+    // aqui o assento nunca é removido da lista depois que a partida começa,
+    // então é preciso pular quem já nasceu bot ou já teve a vaga expirada. O
+    // laço sempre volta a examinar o próprio `antigoAdm` por último (ele já
+    // está com `vagaExpirada`, então nunca é escolhido de novo) — se ninguém
+    // mais for elegível, ninguém vira adm, e tudo bem: só acontece quando
+    // não sobra gente de verdade, caso em que a sala inteira é descartada
+    // logo em seguida (ver a checagem de 'salaAbandonada' que roda depois).
+    _transferirAdm(antigoAdm) {
+        antigoAdm.adm = false;
+        const indiceAtual = this.jogadores.indexOf(antigoAdm);
+        for (let passo = 1; passo <= this.jogadores.length; passo++) {
+            const candidato = this.jogadores[(indiceAtual + passo) % this.jogadores.length];
+            if (!candidato.eraBot && !candidato.vagaExpirada) {
+                candidato.adm = true;
+                this.emit('novoAdm', { id: candidato.id, jogador: candidato.nome });
+                return;
+            }
+        }
+    }
+
+    // Pura consulta (mesmo estilo de jogadorEhAdm) — usada por
+    // SalaManager.reconectar pra distinguir "vaga expirada de vez"
+    // (CodigosErro.VAGA_EXPIRADA) de "nunca fez parte dessa partida"
+    // (NAO_ESTA_NA_SALA).
+    vagaExpirada(playerId) {
+        return this.jogadores.some(jogador => jogador.id === playerId && jogador.vagaExpirada);
     }
 
     // Chamado por todo timeout de turno (aposta ou carta): liga desconectado
@@ -211,6 +307,7 @@ export class GameController extends EventEmitter {
             jogador.expulsoPorInatividade = true;
             jogador.bot = true;
             this.emit('jogadorExpulsoPorInatividade', { id: jogador.id, jogador: jogador.nome });
+            this._iniciarContadorReserva(jogador);
         }
     }
 
@@ -454,6 +551,7 @@ export class GameController extends EventEmitter {
         jogador.bot = true;
         jogador.expulsoPorInatividade = true;
         this.emit('jogadorExpulsoPorInatividade', { id: jogador.id, jogador: jogador.nome });
+        this._iniciarContadorReserva(jogador);
         return true;
     }
 
