@@ -54,6 +54,7 @@ export const EventosServidor = {
     JOGADOR_RECONECTOU: 'jogadorReconectou',    // { salaId, id, jogador }
     JOGADOR_EXPULSO_POR_INATIVIDADE: 'jogadorExpulsoPorInatividade', // { salaId, id, jogador } — ficou limiteInatividadeMs sem agir; o socket dele já saiu da sala (assento continua, dá pra "reconectar")
     VAGA_EXPIRADA: 'vagaExpirada', // { salaId, id, jogador } — tempoReservaMs sem reconectar depois de virar bot; a vaga não pode mais ser reclamada, esse assento é bot pro resto da partida
+    NOVO_ADM: 'novoAdm', // { salaId, id, jogador } — o adm anterior teve a vaga expirada (ver VAGA_EXPIRADA); passa pro próximo jogador de verdade (nem bot original, nem com vaga expirada) na ordem de entrada
     CONVITE_REVANCHE: 'convidadoParaRevanche', // { salaId, novaSalaId, jogador } — broadcast na sala TERMINADA (salaId) quando o adm dela chama jogarDeNovo; jogador é o nome de quem chamou, novaSalaId é onde entrar (via entrarSala normal) se aceitar
     CHAT_MENSAGEM: 'chatMensagem',              // { salaId, jogador, tipo: 'aberta' | 'restrita', id: number | null, texto } — broadcast pra sala inteira, incluindo quem enviou
 };

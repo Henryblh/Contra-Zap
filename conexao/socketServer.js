@@ -313,18 +313,36 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
             }
 
             // Best-effort: sem cliente do outro lado pra responder erro
-            // nenhum. Se a sala já começou, se o jogador já tinha saído, ou
-            // se a sala nem existe mais, não há nada a fazer — e é
-            // exatamente por isso que não tocamos no estado de uma partida
-            // em andamento aqui: só sairSala numa sala ainda em espera tem
-            // efeito, então cair no meio do jogo não perde o assento
-            // (pré-condição pra reconexão futura).
+            // nenhum. Numa sala ainda em espera, sairSala tira o assento de
+            // verdade. Numa partida em andamento (não finalizada), não
+            // tocamos em nada — cair no meio do jogo não perde o assento
+            // (pré-condição pra reconexão futura); o próprio timeout de
+            // turno já cuida de marcar inatividade normalmente. Já numa
+            // partida FINALIZADA, não existe mais nenhum turno sendo
+            // despachado pra um timeout algum dia pegar essa desconexão —
+            // sem isso, fechar a aba depois de ver o resultado nunca
+            // reservaria/expiraria a vaga, e a sucessão de adm (ver
+            // GameController._transferirAdm) nunca aconteceria pra quem só
+            // fechou a aba sem clicar em nada.
             if (player && salaId) {
-                try {
-                    notificarSala(io, salaManager.sairSala(salaId, player));
-                } catch (erro) {
-                    if (!(erro instanceof ErroSala)) {
-                        console.error('Erro inesperado ao limpar sala no disconnect:', erro);
+                const sala = salaManager.obterSala(salaId);
+                if (sala && sala.controller.finalizada) {
+                    if (!sala.controller.vagaExpirada(player.id)) {
+                        try {
+                            salaManager.abandonarPartida(salaId, player);
+                        } catch (erro) {
+                            if (!(erro instanceof ErroSala)) {
+                                console.error('Erro inesperado ao abandonar partida finalizada no disconnect:', erro);
+                            }
+                        }
+                    }
+                } else {
+                    try {
+                        notificarSala(io, salaManager.sairSala(salaId, player));
+                    } catch (erro) {
+                        if (!(erro instanceof ErroSala)) {
+                            console.error('Erro inesperado ao limpar sala no disconnect:', erro);
+                        }
                     }
                 }
             }
@@ -399,6 +417,7 @@ function ligarControllerASala(io, salaManager, sala, socketPorJogador, salaPorSo
     retransmitir(EventosServidor.JOGADOR_RECONECTOU);
     retransmitir(EventosServidor.JOGADOR_EXPULSO_POR_INATIVIDADE);
     retransmitir(EventosServidor.VAGA_EXPIRADA);
+    retransmitir(EventosServidor.NOVO_ADM);
 
     // Além do broadcast acima (que avisa a sala toda, inclusive o próprio
     // expulso — o cliente decide navegar pra tela de salas olhando o `id`),

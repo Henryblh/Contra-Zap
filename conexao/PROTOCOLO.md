@@ -325,10 +325,19 @@ começar tem exatamente o mesmo efeito de mandar `sairSala` — o servidor
 chama a mesma função internamente ao detectar o `disconnect`, sem esperar o
 cliente pedir nada (silenciosamente: não tem ack pra responder, e um erro
 esperado não é logado). Já uma desconexão **depois** que a partida começou
-não mexe no roster do jogo — o assento continua lá. Se a desconexão
-acontecer bem na vez dele, o timeout acima cuida disso normalmente (jogada
-automática); se não for a vez dele, simplesmente não acontece nada até a
-vez chegar.
+mas **antes** dela terminar não mexe no roster do jogo — o assento continua
+lá. Se a desconexão acontecer bem na vez dele, o timeout acima cuida disso
+normalmente (jogada automática); se não for a vez dele, simplesmente não
+acontece nada até a vez chegar.
+
+Uma desconexão **depois** que a partida já **terminou** (`jogoFinalizado`
+já disparou) é a única exceção: como não existe mais nenhum turno sendo
+despachado, nenhum timeout chegaria a pegar isso sozinho — sem tratamento
+especial, fechar a aba depois de ver o resultado nunca reservaria/expiraria
+a vaga (nem disputaria a sucessão de adm, ver "Sucessão de adm" mais
+abaixo). Por isso, nesse caso específico, o `disconnect` chama a mesma
+função de `sairDaPartida` internamente (mesma filosofia do caso "antes de
+começar" acima).
 
 **Expulsão por inatividade**: cada timeout de turno (aposta ou carta) também
 checa há quanto tempo (real, em ms — não em turnos) aquele jogador não faz
@@ -370,6 +379,18 @@ some de `listarSalas` (já não aparecia, por já estar iniciada), e
 `SALA_NAO_ENCONTRADA` a partir daí, como se ela nunca tivesse existido. A
 partida em si (agora só bot contra bot) não é interrompida no meio — ela
 termina sozinha em segundo plano, rápido, sem que ninguém mais a veja.
+
+**Sucessão de adm**: se quem tem `adm` for justamente quem teve a vaga
+expirada, o posto passa pro próximo jogador de verdade (nem um `Bot` de
+`bots/Bot.js`, nem alguém com a própria vaga já expirada) na ordem de
+entrada da sala, e o servidor avisa com `novoAdm`. Enquanto a vaga só está
+reservada (ainda dentro de `tempoReservaMs`, não expirada de vez), o posto
+**não muda** — ele continua adm normalmente e recupera isso sozinho ao
+reconectar, porque a flag nunca chegou a sair dele; só a expiração de
+verdade dispara a sucessão. Se ninguém mais for elegível (não sobrou gente
+de verdade), ninguém vira adm — mas nesse caso a sala inteira já é removida
+do sistema no mesmo instante (ver parágrafo acima), então não sobra ninguém
+pra se importar.
 
 ### `reconectar`
 Payload: `{ salaId: string }`
@@ -477,6 +498,7 @@ adicionado:
 | `jogadorReconectou` | `{ id, jogador }` — voltou via `reconectar`, flag `desconectado` desligada |
 | `jogadorExpulsoPorInatividade` | `{ id, jogador }` — `limiteInatividadeMs` sem nenhuma ação real dele **ou** ele mandou `sairDaPartida`; o socket dele já saiu da room dessa sala (assento continua e vira bot, ver seção de `reconectar` acima) |
 | `vagaExpirada` | `{ id, jogador }` — `tempoReservaMs` depois de `jogadorExpulsoPorInatividade` sem ninguém reconectar; a vaga não pode mais ser reclamada, ver "Expiração de vaga reservada" abaixo |
+| `novoAdm` | `{ id, jogador }` — o adm anterior teve a vaga expirada; passa pro próximo jogador de verdade, ver "Sucessão de adm" abaixo |
 
 ### `convidadoParaRevanche`
 `{ salaId, novaSalaId, jogador }` — broadcast na sala que **terminou**

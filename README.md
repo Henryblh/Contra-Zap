@@ -153,6 +153,12 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
   `SalaManager`. Assim que ninguém mais estiver conectado na room dela —
   saiu, recusou ou aceitou a revanche, ou só fechou a aba — a sala é
   descartada do sistema na hora, sem depender de nenhum timer.
+- ✅ **Sucessão de adm durante a partida**: se quem é adm tiver a vaga
+  expirada (ver acima), o posto passa pro próximo jogador de verdade na
+  ordem de entrada (`novoAdm`) — nunca fica preso num assento que virou bot
+  pra sempre. Enquanto a vaga só está reservada (ainda não expirou), o adm
+  não muda: ele recupera o posto sozinho ao reconectar, porque a flag nunca
+  saiu dele.
 - ✅ Interface web em React funcionando ponta a ponta (login, lobby, partida).
 
 ## Ferramentas de debug (linha de comando)
@@ -164,8 +170,14 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
   verdade (login + criar/entrar em sala) via terminal. Rode até 4 instâncias
   em terminais separados pra simular uma mesa completa. Use nomes de
   `banco.json` (ex.: `henrique`/`123`).
+- Com bots preenchendo assento, dá pra criar uma sala 100% automática
+  (`numberPlayers: 2, botNumber: 1` com só você) — bom caso de teste pra
+  validar o motor inteiro sem precisar de mais gente.
 
 ## O que falta fazer
+
+Gaps estruturais de verdade — o motor/protocolo tem um buraco real, não é só
+polimento.
 
 - **Lógica de verdade dos bots** (`bots/BotBrain.js`) — hoje é só um
   placeholder burro (sempre a última carta, sempre aposta 1). A estrutura já
@@ -173,40 +185,32 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
   estratégia melhor e, mais pra frente, treinar com ML.
 - Subir o servidor num ambiente de verdade, com sockets web funcionando fora
   da rede local (hoje só foi testado em `localhost`).
-
-### Sugestões pra deixar o motor redondo antes de investir no front
-
-- `Player.rate` existe desde sempre (banco, classe, getter/setter) mas nunca
-  é lido nem atualizado em lugar nenhum — se a ideia é ter algum tipo de
-  ranking/pontuação entre partidas, esse é o momento de decidir a fórmula e
-  ligar isso ao fim de `jogoFinalizado`, antes de esquecer que o campo existe.
-- Com bots preenchendo assento, dá pra criar uma sala 100% automática
-  (`numberPlayers: 2, botNumber: 1` com só você) — bom caso de teste pra
-  validar o motor inteiro sem precisar de mais gente, vale ter isso em mente
-  ao testar.
+- O cooldown de chat (`CHAT_COOLDOWN_MS`) só existe no front — o servidor
+  aceita qualquer volume de `chat` que passe na validação de tipo/tamanho.
+  Um cliente customizado pode spammar a sala inteira sem limite nenhum.
 - O JWT emitido em `entrar`/`cadastrar`/`entrarComoConvidado` nunca é
   validado em produção (`validarToken`, em `login.js`, só é chamado no
   teste) — e o front nem guarda o token (de propósito, ver `socket.js`).
   Hoje ele não serve pra nada além de existir; se a ideia é reaproveitar
   sessão depois de uma queda de conexão sem pedir nome/senha de novo, esse é
   o gancho certo.
-- O ack de `reconectar` não devolve `jogadores` nem `adm` — só mão/vez.
-  Efeito colateral real: se o dono de uma sala der F5 depois que a partida já
-  acabou, o botão "Jogar de novo" pode não aparecer pra ele, porque o
-  cliente nunca descobre que ele é adm por esse caminho.
-- O cooldown de chat (`CHAT_COOLDOWN_MS`) só existe no front — o servidor
-  aceita qualquer volume de `chat` que passe na validação de tipo/tamanho.
-  Um cliente customizado pode spammar a sala inteira sem limite nenhum.
-- Ranking: tentar juntar pessoas de nível similar em salas ranqueadas
-  (depende de `Player.rate` estar vivo, ver acima), separado de salas
-  casuais sem esse pareamento.
-- Placar/histórico: algum método de quantificar performance do jogador ao
-  longo de várias partidas, não só o hp da partida atual.
-- `socket.js` não escuta `disconnect`/`reconnect` do socket.io-client nem dá
-  feedback visual de conexão perdida — se a rede cair no meio de uma sessão,
-  o jogador só percebe quando alguma ação falhar.
-- Nenhuma partida/rodada é persistida — `banco.sqlite` só guarda conta
-  (nome + hash de senha). Todo o resto (salas, placar, quem jogou o quê)
-  vive só na memória do processo e desaparece num restart.
-- Carta é só texto (`[Q de Copas]`) — bom pra testar regras, mas sem nenhum
-  componente visual de carta ainda no front.
+- `socket.js` não escuta `disconnect`/`reconnect` do socket.io-client —
+  precisa expor isso como uma flag de estado de conexão pro front consumir,
+  pra dar algum feedback visual quando a rede cai (hoje o jogador só percebe
+  quando uma ação falhar).
+
+
+### PIN — só mexer se alguém reclamar
+
+Fica pra depois de propósito: pro escopo e tipo de sistema, o custo de fazer
+não parece compensar o ganho agora.
+
+- `Player.rate` / ranking: existe desde sempre (banco, classe,
+  getter/setter) mas nunca é lido nem atualizado em lugar nenhum. No melhor
+  dos casos é a última coisa que fazemos no projeto; no pior, nunca usamos.
+  Juntar gente de nível parecido em salas ranqueadas depende disso e cai na
+  mesma categoria.
+- Placar/histórico entre partidas (não só o hp da partida atual) e persistir
+  qualquer coisa além de conta de usuário (`banco.sqlite` só guarda nome +
+  hash de senha hoje — salas, placar, quem jogou o quê vivem só na memória e
+  somem num restart).

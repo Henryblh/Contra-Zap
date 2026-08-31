@@ -203,6 +203,11 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
                     registrar(`⏱️ ${p.jogador} foi desconectado por inatividade`);
                 }
             },
+            novoAdm(p) {
+                if (!daSala(p)) return;
+                setJogadores((anterior) => anterior.map((j) => ({ ...j, adm: j.nome === p.jogador })));
+                registrar(p.jogador === meuNome ? '👑 Você virou o adm da sala' : `👑 ${p.jogador} virou o adm da sala`);
+            },
         };
 
         // Loga todo evento recebido, com nome e payload — cobre qualquer

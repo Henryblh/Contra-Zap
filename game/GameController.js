@@ -242,9 +242,40 @@ export class GameController extends EventEmitter {
         jogador.vagaExpirada = true;
         this.emit('vagaExpirada', { id: jogador.id, jogador: jogador.nome });
 
+        // Sucessão de adm: só transfere quando a vaga expira de vez, não já
+        // quando ele só virou bot temporário — enquanto durar a reserva ele
+        // continua adm normalmente e recupera isso sozinho ao reconectar,
+        // porque a flag nunca chegou a sair dele.
+        if (jogador.adm) {
+            this._transferirAdm(jogador);
+        }
+
         if (this.jogadores.every(j => j.eraBot || j.vagaExpirada)) {
             this.atrasoBotMs = ATRASO_BOT_MS_SALA_ABANDONADA;
             this.emit('salaAbandonada', {});
+        }
+    }
+
+    // Passa o posto de adm pro próximo jogador de verdade (nem `eraBot`, nem
+    // com `vagaExpirada`) a partir da posição de quem está saindo, na ordem
+    // de entrada — mesma ideia de removerJogador (sala de espera), só que
+    // aqui o assento nunca é removido da lista depois que a partida começa,
+    // então é preciso pular quem já nasceu bot ou já teve a vaga expirada. O
+    // laço sempre volta a examinar o próprio `antigoAdm` por último (ele já
+    // está com `vagaExpirada`, então nunca é escolhido de novo) — se ninguém
+    // mais for elegível, ninguém vira adm, e tudo bem: só acontece quando
+    // não sobra gente de verdade, caso em que a sala inteira é descartada
+    // logo em seguida (ver a checagem de 'salaAbandonada' que roda depois).
+    _transferirAdm(antigoAdm) {
+        antigoAdm.adm = false;
+        const indiceAtual = this.jogadores.indexOf(antigoAdm);
+        for (let passo = 1; passo <= this.jogadores.length; passo++) {
+            const candidato = this.jogadores[(indiceAtual + passo) % this.jogadores.length];
+            if (!candidato.eraBot && !candidato.vagaExpirada) {
+                candidato.adm = true;
+                this.emit('novoAdm', { id: candidato.id, jogador: candidato.nome });
+                return;
+            }
         }
     }
 
