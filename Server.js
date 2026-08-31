@@ -8,7 +8,16 @@ import { registrarSocketServer } from './conexao/socketServer.js';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const server = createServer(app);
-const io = new Server(server);
+// pingInterval + pingTimeout = pior caso pra perceber uma queda de conexão
+// (aba fechada, rede caiu sem aviso, cabo puxado) — default do socket.io é
+// 25s + 20s = 45s. Encolhido pra ~25s (10s + 15s): perceptível rápido o
+// bastante pro jogador ver o aviso de conexão perdida (ver public/app/src/socket.js)
+// sem exagerar na frequência de ping (ainda troca só um pacote a cada 10s
+// por conexão ociosa).
+const io = new Server(server, {
+    pingInterval: 10_000,
+    pingTimeout: 15_000,
+});
 
 registrarSocketServer(io);
 

@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { socket, chamar } from '../socket.js';
+import { assinarSessaoRetomada } from '../sessao.js';
 import { MENSAGENS_PRONTAS, CHAT_COOLDOWN_MS } from '../chatMensagens.js';
 
 // Tela 3: uma sala inteira, da espera até o fim da partida. É um componente
@@ -57,6 +58,11 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
     // definitiva na partida).
     const [apostas, setApostas] = useState({});
     const [eliminados, setEliminados] = useState([]);
+    // Nomes de quem está jogando no automático agora (jogadorExpulsoPorInatividade
+    // sem um jogadorReconectou depois) — flag visual pro front marcar "isso
+    // aqui é um bot temporário", diferente de `eliminados` (não zera sozinha,
+    // só sai daqui de novo se reconectar).
+    const [desconectados, setDesconectados] = useState([]);
     // Chat da sala (ver conexao/PROTOCOLO.md). `mensagensChat` acumula o que
     // chega em chatMensagem (broadcast, inclui o que eu mesmo mandei).
     // `cooldownAte` é o timestamp até quando os botões de envio ficam
@@ -185,6 +191,7 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
             },
             jogadorReconectou(p) {
                 if (!daSala(p)) return;
+                setDesconectados((anterior) => anterior.filter((nome) => nome !== p.jogador));
                 registrar(`🔌 ${p.jogador} reconectou`);
             },
             chatMensagem(p) {
@@ -196,11 +203,15 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
             },
             jogadorExpulsoPorInatividade(p) {
                 if (!daSala(p)) return;
+                // Mesmo evento pra inatividade de verdade e pra "Sair da
+                // partida" (ver PROTOCOLO.md) — o cliente não distingue os
+                // dois casos, e a mensagem serve pros dois igual.
+                setDesconectados((anterior) => (anterior.includes(p.jogador) ? anterior : [...anterior, p.jogador]));
                 if (p.jogador === meuNome) {
                     registrar('⏱️ Você foi desconectado da sala por inatividade');
                     onSairDaPartida(salaId);
                 } else {
-                    registrar(`⏱️ ${p.jogador} foi desconectado por inatividade`);
+                    registrar(`🤖 ${p.jogador} desconectou — um bot assumiu o lugar dele até reconectar`);
                 }
             },
             novoAdm(p) {
@@ -229,6 +240,39 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
             for (const [evento, handler] of Object.entries(comLog)) socket.off(evento, handler);
         };
     }, [salaId]);
+
+    // Reconexão de rede enquanto esta tela já estava aberta (ver App.jsx e
+    // sessao.js): o socket muda de id, então o servidor não sabe mais que
+    // este socket pertence a esta room — sem chamar `reconectar` de novo,
+    // a tela continuaria parecendo viva, mas surda a qualquer evento novo
+    // da partida. Assina `assinarSessaoRetomada`, não o `connect` cru do
+    // socket.io — só dispara DEPOIS que o servidor já reautenticou o
+    // socket (ver App.jsx), senão este `reconectar` chegaria cedo demais e
+    // voltaria NAO_IDENTIFICADO. Antes da partida começar não faz sentido
+    // tentar: uma queda de conexão nessa fase já tira o assento de verdade
+    // (sairSala automático, ver PROTOCOLO.md) — não tem pra onde voltar.
+    useEffect(() => {
+        if (!iniciada) return;
+
+        async function ressincronizar() {
+            try {
+                const resposta = await chamar('reconectar', { salaId });
+                setMao(resposta.mao);
+                setCartasRodada(resposta.cartasRodada);
+                setMaosReveladas(Object.fromEntries((resposta.maosReveladas ?? []).map((m) => [m.jogador, m.mao])));
+                setJogadorDaVez(resposta.jogadorDaVez);
+                setJogadorDaVezAposta(resposta.jogadorDaVezAposta);
+                setLog((anterior) => [...anterior.slice(-49), '🔌 Conexão restabelecida — sincronizado com a partida']);
+            } catch {
+                // melhor esforço — se a sala não existir mais, ou a vaga já
+                // tiver expirado enquanto estávamos fora (ver
+                // PROTOCOLO.md), não tem o que sincronizar; a próxima ação
+                // que falhar avisa o jogador do jeito de sempre.
+            }
+        }
+
+        return assinarSessaoRetomada(ressincronizar);
+    }, [iniciada, salaId]);
 
     // Enquanto o cooldown está de pé, um tiquetaque só pra atualizar o
     // contador na tela; para sozinho quando zera.
@@ -466,17 +510,20 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
                     <div className="status-jogadores">
                         {jogadores.map((j) => {
                             const morreu = eliminados.includes(j.nome);
+                            const bot = desconectados.includes(j.nome);
                             const aposta = apostas[j.nome];
                             return (
                                 <span
                                     key={j.nome}
-                                    className={`status-jogador${morreu ? ' status-jogador-morto' : ''}`}
+                                    className={`status-jogador${morreu ? ' status-jogador-morto' : bot ? ' status-jogador-bot' : ''}`}
                                 >
                                     {morreu
                                         ? `💀 ${j.nome} morreu`
-                                        : aposta !== undefined
-                                            ? `${j.nome} apostou ${aposta}`
-                                            : j.nome}
+                                        : bot
+                                            ? `🤖 ${j.nome} (bot)`
+                                            : aposta !== undefined
+                                                ? `${j.nome} apostou ${aposta}`
+                                                : j.nome}
                                 </span>
                             );
                         })}
