@@ -31,6 +31,14 @@ Thumbs.db
 /dataSources/
 /dataSources.local.xml
 
+# Treino do bot (self-play/PPO, ver training/env_bridge.js) — venv Python e
+# artefatos gerados (checkpoints, logs), nada disso deve ir pro repo do grupo.
+/training/.venv/
+/training/checkpoints/
+/training/logs/
+__pycache__/
+*.pyc
+
 # Testes escritos localmente, nunca commitados no repositório do grupo —
 # mantidos só locais de propósito (não é responsabilidade individual de
 # quem está nesta branch decidir a estratégia de testes automatizados do
