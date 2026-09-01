@@ -61,6 +61,13 @@ const ROUND_START = 3;
 // continuar treinando o baseline antigo (66 números) em paralelo com a
 // versão nova (70), pra comparação — não é config de produção nenhuma.
 const COM_FLAG_APOSTOU = process.env.COM_FLAG_APOSTOU !== '0';
+// Liga/desliga a memória de cartas já jogadas na rodada (ver construirObs)
+// — mesmo padrão de COM_FLAG_APOSTOU, precisa concordar com
+// COM_MEMORIA_CARTAS em model.py. Simplificação deliberada por enquanto:
+// marca "essa carta (rank+naipe) já saiu" sem contar quantas cópias —
+// com mais de um baralho em jogo (ver Baralho.js) duas cópias idênticas
+// virariam só 1 bit; aceito por ora, ver comentário em codificarMemoria.
+const COM_MEMORIA_CARTAS = process.env.COM_MEMORIA_CARTAS !== '0';
 // Teto de cartas representadas na observação e no espaço de ação de aposta
 // — tem que bater com MAX_HAND em training/python/model.py. O jogo raramente
 // chega perto disso (hp=3 e diferença>=1 é comum, então a partida costuma
@@ -138,12 +145,30 @@ function codificarMesa(mesaAtiva, ordemRel, viraValor) {
     return out;
 }
 
+// Vetor de 40 posições (10 ranks x 4 naipes), 1 se essa combinação já foi
+// jogada em QUALQUER vaza anterior desta rodada (a vaza atual já está
+// coberta por `mesa`, então isto é só o que já saiu antes dela). Público
+// pra todo mundo igual — não muda por assento, ao contrário de hp/aposta.
+//
+// Simplificação deliberada: marca só "já saiu pelo menos uma vez", não
+// conta cópias. Com mais de um baralho em jogo (numberPlayers/round grande
+// o bastante — ver Baralho.js) duas cópias idênticas da mesma carta virariam
+// só 1 bit em vez de 2, perdendo a distinção "quantas já saíram". Bem raro
+// nas partidas de 4 assentos que estamos treinando agora, e aceito por ora.
+function codificarMemoria(cartasJogadas) {
+    const out = new Array(NUM_RANKS * NUM_NAIPES).fill(0);
+    for (const chave of cartasJogadas) out[chave] = 1;
+    return out;
+}
+
 // `apostaram` (Set de ids) diz quem já apostou NESTA rodada — sem isso,
 // `aposta === 0` fica ambíguo entre "ainda não decidiu" e "decidiu que é
 // zero" pra quem ainda não teve seu turnoAposta (ver jogarEpisodio, que
 // zera o Set a cada novaRodadaIniciada e adiciona o id logo depois de cada
-// resposta de aposta).
-function construirObs(controller, jogador, apostaram) {
+// resposta de aposta). `cartasJogadas` (Set de valorInt*NUM_NAIPES+naipeInt)
+// é a memória de cartas de vazas anteriores da mesma rodada — mesmo padrão,
+// zerado a cada novaRodadaIniciada.
+function construirObs(controller, jogador, apostaram, cartasJogadas) {
     const rodada = controller.rodada;
     const ordemRel = ordemRelativa(controller.jogadores, jogador.id);
 
@@ -153,13 +178,15 @@ function construirObs(controller, jogador, apostaram) {
         if (COM_FLAG_APOSTOU) hpApostaSteak.push(apostaram.has(j.id) ? 1 : 0);
     }
 
-    return {
+    const obs = {
         mao: codificarMao(jogador.mao, rodada.viraValor),
         mesa: codificarMesa(rodada.mesaAtiva, ordemRel, rodada.viraValor),
         hpApostaSteak,
         viraValor: rodada.viraValor / (NUM_RANKS - 1),
         cartasRodada: rodada.round / MAX_HAND,
     };
+    if (COM_MEMORIA_CARTAS) obs.memoria = codificarMemoria(cartasJogadas);
+    return obs;
 }
 
 // --- máscaras de ação legal: estrutura do jogo, não estratégia (ver PROTOCOLO.md) ---
@@ -243,10 +270,12 @@ async function jogarEpisodio(numeroEpisodio) {
         }
     });
 
-    // Quem já apostou nesta rodada — zera a cada rodada nova, antes de
-    // qualquer turnoAposta dela (ver construirObs).
+    // Quem já apostou nesta rodada, e quais cartas já saíram nela — os dois
+    // zeram a cada rodada nova, antes de qualquer decisão dela (ver
+    // construirObs).
     let apostaram = new Set();
-    controller.on('novaRodadaIniciada', () => { apostaram = new Set(); });
+    let cartasJogadas = new Set();
+    controller.on('novaRodadaIniciada', () => { apostaram = new Set(); cartasJogadas = new Set(); });
 
     controller.on('turnoAposta', async ({ id }) => {
         const jogador = controller.jogadores.find(j => j.id === id);
@@ -254,7 +283,7 @@ async function jogarEpisodio(numeroEpisodio) {
         const action = await pedirAcao({
             type: 'step', episode: numeroEpisodio, seat: id, kind: 'aposta',
             reward, done: false,
-            obs: construirObs(controller, jogador, apostaram), legalMask: maskAposta(controller.rodada, jogador),
+            obs: construirObs(controller, jogador, apostaram, cartasJogadas), legalMask: maskAposta(controller.rodada, jogador),
         });
         apostaram.add(id);
         const resultado = controller.apostar(id, action);
@@ -267,8 +296,12 @@ async function jogarEpisodio(numeroEpisodio) {
         const action = await pedirAcao({
             type: 'step', episode: numeroEpisodio, seat: id, kind: 'carta',
             reward, done: false,
-            obs: construirObs(controller, jogador, apostaram), legalMask: maskCarta(jogador.mao.length),
+            obs: construirObs(controller, jogador, apostaram, cartasJogadas), legalMask: maskCarta(jogador.mao.length),
         });
+        // Registra a carta ANTES de jogarCarta() consumi-la da mão — depois
+        // disso jogador.mao[action] não existe mais (splice já rodou).
+        const cartaEscolhida = jogador.mao[action];
+        if (cartaEscolhida) cartasJogadas.add(cartaEscolhida.valorInt * NUM_NAIPES + cartaEscolhida.naipeInt);
         const resultado = controller.jogarCarta(id, action);
         if (!resultado.ok) throw new Error(`carta inválida do assento ${id}: ${resultado.motivo} (ação=${action})`);
     });

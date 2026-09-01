@@ -11,12 +11,13 @@
 #   hpApostaSteak: 4 assentos * [hp, aposta, steak] (+ já_apostou, se
 #     COM_FLAG_APOSTOU) = 12 ou 16
 #   viraValor (1) + cartasRodada (1)
-#   total = 36 + 16 + (12 ou 16) + 1 + 1 = 66 ou 70
+#   memoria: 10 ranks x 4 naipes já jogados nesta rodada, se COM_MEMORIA_CARTAS = 0 ou 40
+#   total = 36 + 16 + (12 ou 16) + 1 + 1 + (0 ou 40) = 66 a 110
 #
-# COM_FLAG_APOSTOU precisa concordar com a mesma variável de ambiente em
-# training/env_bridge.js — existe só pra poder continuar treinando o
-# baseline antigo (checkpoint de 66 entradas) em paralelo com a versão nova
-# (70), pra comparação; não é config de produção.
+# COM_FLAG_APOSTOU / COM_MEMORIA_CARTAS precisam concordar com as mesmas
+# variáveis de ambiente em training/env_bridge.js — existem só pra poder
+# treinar versões antigas de checkpoint (tamanho de observação diferente)
+# em paralelo com a mais nova, pra comparação; não é config de produção.
 import os
 
 import torch
@@ -24,8 +25,14 @@ import torch.nn as nn
 
 NUM_SEATS = 4
 MAX_HAND = 12
+NUM_RANKS = 10
+NUM_NAIPES = 4
 COM_FLAG_APOSTOU = os.environ.get('COM_FLAG_APOSTOU', '1') != '0'
-OBS_DIM = MAX_HAND * 3 + NUM_SEATS * 4 + NUM_SEATS * (4 if COM_FLAG_APOSTOU else 3) + 1 + 1
+COM_MEMORIA_CARTAS = os.environ.get('COM_MEMORIA_CARTAS', '1') != '0'
+OBS_DIM = (
+    MAX_HAND * 3 + NUM_SEATS * 4 + NUM_SEATS * (4 if COM_FLAG_APOSTOU else 3) + 1 + 1
+    + (NUM_RANKS * NUM_NAIPES if COM_MEMORIA_CARTAS else 0)
+)
 APOSTA_ACTIONS = MAX_HAND + 1  # aposta vai de 0 até o número de cartas da rodada
 CARTA_ACTIONS = MAX_HAND
 
