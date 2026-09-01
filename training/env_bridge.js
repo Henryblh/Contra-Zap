@@ -31,6 +31,28 @@ import { createInterface } from 'node:readline';
 import { Player } from '../game/Player.js';
 import { GameController } from '../game/GameController.js';
 
+// A avaliação pode fixar uma seed sem interferir no servidor nem no treino
+// normal: este arquivo sempre roda em um subprocesso próprio. Assim, mesma
+// seed + mesmas políticas produz a mesma sequência de embaralhamentos.
+function instalarAleatoriedadeDeterministica() {
+    const textoSeed = process.env.EVAL_SEED;
+    if (textoSeed === undefined) return;
+
+    const seed = Number(textoSeed);
+    if (!Number.isInteger(seed)) throw new Error('EVAL_SEED deve ser um inteiro.');
+
+    let estado = seed >>> 0;
+    Math.random = () => {
+        estado += 0x6D2B79F5;
+        let t = estado;
+        t = Math.imul(t ^ (t >>> 15), t | 1);
+        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+        return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
+    };
+}
+
+instalarAleatoriedadeDeterministica();
+
 const NUM_SEATS = 4;
 const ROUND_START = 3;
 // Liga/desliga a flag "já apostou" (ver construirObs) — precisa concordar
@@ -189,6 +211,17 @@ async function jogarEpisodio(numeroEpisodio) {
     // Reward acumulado desde a última mensagem enviada pra cada assento —
     // flusha (e zera) toda vez que mandamos um novo `step` pra ele.
     const pendente = new Array(NUM_SEATS).fill(0);
+    // Métricas exatas da partida. O treino atual ignora esses campos extras,
+    // mas o avaliador usa o resumo final para não inferir erro de aposta de
+    // mensagens de reward (que também podem ser zero em outros turnos).
+    const metricasPorSeat = Array.from({ length: NUM_SEATS }, (_, seat) => ({
+        seat,
+        rodadasJogadas: 0,
+        apostasExatas: 0,
+        erroAbsolutoTotal: 0,
+        totalApostado: 0,
+        totalVazas: 0,
+    }));
     let vencedorId = null;
     const fimDeJogo = new Promise((resolve) => {
         controller.on('jogoFinalizado', ({ vencedor }) => {
@@ -198,9 +231,15 @@ async function jogarEpisodio(numeroEpisodio) {
     });
 
     controller.on('rodadaFinalizada', ({ resultado }) => {
-        for (const { nome, diferenca } of resultado) {
+        for (const { nome, aposta, steak, diferenca } of resultado) {
             const jogador = controller.jogadores.find(j => j.nome === nome);
             pendente[jogador.id] += -diferenca;
+            const metricas = metricasPorSeat[jogador.id];
+            metricas.rodadasJogadas += 1;
+            metricas.apostasExatas += diferenca === 0 ? 1 : 0;
+            metricas.erroAbsolutoTotal += diferenca;
+            metricas.totalApostado += aposta;
+            metricas.totalVazas += steak;
         }
     });
 
@@ -247,6 +286,7 @@ async function jogarEpisodio(numeroEpisodio) {
         vencedor: vencedorId,
         rodadas: controller.numeroRodada,
         hpFinal: controller.jogadores.map(j => j.hp),
+        metricasPorSeat,
     };
     for (let seat = 0; seat < NUM_SEATS; seat++) {
         const bonus = seat === vencedorId ? WIN_BONUS : LOSE_BONUS;

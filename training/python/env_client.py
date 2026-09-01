@@ -3,6 +3,7 @@
 # Node como subprocesso e conversa com ele por stdin/stdout, uma linha JSON
 # por mensagem. Não sabe nada de regra do jogo — só fala o protocolo.
 import json
+import os
 import subprocess
 import sys
 from pathlib import Path
@@ -20,11 +21,14 @@ def flatten_obs(obs):
 
 
 class EnvBridge:
-    def __init__(self, node_bin="node"):
+    def __init__(self, node_bin="node", extra_env=None):
+        env = os.environ.copy()
+        if extra_env:
+            env.update({str(chave): str(valor) for chave, valor in extra_env.items()})
         self.proc = subprocess.Popen(
             [node_bin, str(BRIDGE_PATH)],
             stdin=subprocess.PIPE, stdout=subprocess.PIPE, stderr=sys.stderr,
-            text=True, bufsize=1,
+            text=True, bufsize=1, env=env,
         )
 
     def read_step(self):
@@ -39,8 +43,15 @@ class EnvBridge:
         self.proc.stdin.flush()
 
     def close(self):
-        self.proc.terminate()
         try:
-            self.proc.wait(timeout=5)
-        except subprocess.TimeoutExpired:
-            self.proc.kill()
+            if self.proc.poll() is None:
+                self.proc.terminate()
+                try:
+                    self.proc.wait(timeout=5)
+                except subprocess.TimeoutExpired:
+                    self.proc.kill()
+                    self.proc.wait(timeout=5)
+        finally:
+            for stream in (self.proc.stdin, self.proc.stdout):
+                if stream and not stream.closed:
+                    stream.close()
