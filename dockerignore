@@ -1,0 +1,8 @@
+node_modules
+npm-debug.log
+banco.sqlite
+jwt.secret
+.git
+.gitignore
+README.md
+*.md

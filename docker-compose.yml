@@ -1,0 +1,20 @@
+services:
+  game-server:
+    platform: linux/arm64
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: contra-zap-server
+    ports:
+      - "3000:3000"
+    environment:
+      - NODE_ENV=production
+      - PORT=3000
+    # TEMPORARIAMENTE DESATIVADO PRA TESTE DE DIAGNÓSTICO — SQLite +
+    # bind mount no Docker Desktop Mac pode causar segfault (problema
+    # conhecido de locking/mmap sobre virtiofs). Se o teste confirmar
+    # isso, trocamos por named volume (solução definitiva).
+    # volumes:
+    #   - ./banco.sqlite:/app/banco.sqlite
+    #   - ./jwt.secret:/app/jwt.secret
+    restart: unless-stopped
