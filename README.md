@@ -149,6 +149,29 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
   (`numberPlayers: 2, botNumber: 1` com só você) — bom caso de teste pra
   validar o motor inteiro sem precisar de mais gente.
 
+### Avaliador offline de bots
+
+O avaliador reutiliza o motor real da partida, mas não liga modelos treinados
+ao servidor. Rode com a venv de `training`:
+
+```powershell
+training\.venv\Scripts\python.exe training\python\evaluate.py versus `
+  --candidate checkpoint=training\checkpoints\overnight.pt `
+  --opponent heuristic --games 10000 --seed 42
+```
+
+Também há escalação livre dos quatro assentos:
+
+```powershell
+training\.venv\Scripts\python.exe training\python\evaluate.py lineup `
+  --players checkpoint=training\checkpoints\overnight.pt heuristic random heuristic
+```
+
+Descritores aceitos: `checkpoint=<arquivo.pt>`, `heuristic`, `random` e
+`strategy=<módulo>:<Classe>`. Uma estratégia Python deve expor
+`act(kind, obs, legal_mask, rng)` e devolver uma ação permitida. O resultado
+aparece no console e é salvo como JSON em `training/logs/`.
+
 ## O que falta fazer
 
 Gaps estruturais de verdade — o motor/protocolo tem um buraco real, não é só
