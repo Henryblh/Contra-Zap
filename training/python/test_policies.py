@@ -23,6 +23,7 @@ def sample_obs():
         "hpApostaSteak": [0.0] * 16,
         "viraValor": 0.0,
         "cartasRodada": 0.25,
+        "memoria": [0.0] * 40,
     }
 
 
@@ -52,10 +53,10 @@ class PolicyTests(unittest.TestCase):
         with self.assertRaises(PolicyError):
             validate_action("1", [1, 1], "test")
 
-    def test_loads_66_and_70_checkpoints(self):
+    def test_loads_supported_checkpoint_sizes(self):
         with tempfile.TemporaryDirectory() as directory:
             root = Path(directory)
-            for dim in (66, 70):
+            for dim in (66, 70, 106, 110):
                 path = root / f"model-{dim}.pt"
                 torch.save(ActorCritic(obs_dim=dim).state_dict(), path)
                 handle = PolicyFactory().create(f"checkpoint={path}")
