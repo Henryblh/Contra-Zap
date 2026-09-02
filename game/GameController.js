@@ -48,6 +48,10 @@ export class GameController extends EventEmitter {
         this.game = null;
         this.rodada = null;
         this.numeroRodada = 0;
+        // Cartas (valorInt*4+naipeInt) ja jogadas na rodada atual — memoria
+        // que bots/BotBrain.js usa na observacao da rede. Zerada a cada
+        // rodada nova em _jogarRodadaAtual; so BotBrain le.
+        this._cartasJogadasRodada = new Set();
         this._timerInicio = null;
         // segundos passados pro último agendarInicio — só pra quem chega
         // depois do broadcast de partidaIniciandoEm (ex.: o cliente que
@@ -344,7 +348,7 @@ export class GameController extends EventEmitter {
             this.emit('turnoJogador', { id: jogador.id, jogador: jogador.nome });
             if (jogador.desconectado) this.emit('jogadaAutomatica', { id: jogador.id, jogador: jogador.nome });
             await this._atrasoBot();
-            return escolherCarta(jogador);
+            return escolherCarta(jogador, this);
         }
 
         const jogadaFeita = this._aguardarJogada(jogador);
@@ -356,7 +360,7 @@ export class GameController extends EventEmitter {
             const resolver = this._jogadaEsperada.resolver;
             this._jogadaEsperada = null;
             this.emit('jogadaAutomatica', { id: jogador.id, jogador: jogador.nome });
-            resolver(escolherCarta(jogador));
+            resolver(escolherCarta(jogador, this));
         }, this.tempoTurnoMs);
         timer.unref?.();
 
@@ -430,7 +434,7 @@ export class GameController extends EventEmitter {
     // existe um valor proibido por vez — ver apostar()).
     _decidirApostaAutomatica(jogador) {
         const permiteAposta1 = !(this._ehUltimoAApostar(jogador) && this._somaApostasDosOutros(jogador) + 1 === this.rodada.round);
-        return escolherAposta(jogador, { permiteAposta1 });
+        return escolherAposta(jogador, { permiteAposta1, controller: this });
     }
 
     // Igual _aguardarJogadaOuTimeout: emite turnoAposta e dá tempoTurnoMs
@@ -572,6 +576,7 @@ export class GameController extends EventEmitter {
         const rodada = this.rodada;
 
         rodada.darCartas();
+        this._cartasJogadasRodada = new Set();
         const maos = rodada.gameOrder.map(j => ({
             id: j.id,
             nome: j.nome,
@@ -607,6 +612,7 @@ export class GameController extends EventEmitter {
                 const indice = await this._aguardarJogadaOuTimeout(jogador);
 
                 const carta = jogador.mao.splice(indice, 1)[0];
+                this._cartasJogadasRodada.add(carta.valorInt * 4 + carta.naipeInt);
                 const status = rodada.registrarJogada(jogador, carta);
                 this.emit('cartaJogada', { jogador: jogador.nome, carta: carta.toString(), status });
             }
