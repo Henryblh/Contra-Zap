@@ -19,10 +19,10 @@ from .jogo import Jogo
 class PlayerGame:
     # Só o que é estado de jogo de verdade -- sem senha/rate/bot/adm/
     # desconectado/reconexão, que são conceito de conta e conexão.
-    def __init__(self, id_, nome):
+    def __init__(self, id_, nome, hp=3):
         self.id = id_
         self.nome = nome
-        self.hp = 3
+        self.hp = hp
         self.steak = 0
         self.mao = []
         self.aposta = 0
@@ -32,9 +32,11 @@ class Partida:
     # `on_*` são o equivalente aos eventos do GameController (rodadaFinalizada,
     # jogoFinalizado, novaRodadaIniciada) -- fatos que o motor relata, sem
     # saber nada de reward/treino. Opcionais: None = não notifica ninguém.
-    def __init__(self, number_players=4, round_start=3, random_shuffle=True,
+    # `hp_inicial` é configurável pra dar cobertura de treino a diferentes
+    # situações de hp (ver discussão sobre variar hp pra melhorar o fim de jogo).
+    def __init__(self, number_players=4, round_start=3, random_shuffle=True, hp_inicial=3,
                  on_nova_rodada=None, on_rodada_finalizada=None, on_jogo_finalizado=None):
-        self.jogadores = [PlayerGame(i, f"agente{i}") for i in range(number_players)]
+        self.jogadores = [PlayerGame(i, f"agente{i}", hp=hp_inicial) for i in range(number_players)]
         self.jogo = Jogo(number_players, round_start, random_shuffle, self.jogadores)
         self.rodada = None
         self.numero_rodada = 0

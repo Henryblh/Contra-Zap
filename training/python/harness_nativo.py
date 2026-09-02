@@ -11,17 +11,31 @@
 # jogo duplicada em duas linguagens (JS de produção + este motor). Ver
 # discussão sobre esse trade-off antes de usar isto além de experimento.
 import os
+import random
 
 from motor.partida import Partida
 
 NUM_SEATS = 4
-ROUND_START = 3
+# Mudança de default (era 3): começar em 2 dá mais variedade de round-size
+# cedo, sem acionar a regra especial de round==1 (carta própria escondida --
+# ver harness_round1.py, esse caso continua fora daqui de propósito).
+ROUND_START = int(os.environ.get("ROUND_START", "2"))
+# hp inicial sorteado por episódio em vez de sempre 3 -- dá mais cobertura
+# de situações de "quase morrendo" pro modelo ver durante o treino. 3/4 de
+# chance de 3, 1/4 de chance de 2 (ver discussão sobre variar hp).
+HP_ALEATORIO = os.environ.get("HP_ALEATORIO", "1") != "0"
 MAX_HAND = 12
 MAX_APOSTA = MAX_HAND
 NUM_RANKS = 10
 NUM_NAIPES = 4
 WIN_BONUS = 5
 LOSE_BONUS = -1
+
+
+def sortear_hp_inicial():
+    if not HP_ALEATORIO:
+        return 3
+    return random.choices([3, 2], weights=[3, 1])[0]
 # Mesmo padrão de env_bridge.js/model.py -- precisa concordar com os dois.
 COM_FLAG_APOSTOU = os.environ.get("COM_FLAG_APOSTOU", "1") != "0"
 COM_MEMORIA_CARTAS = os.environ.get("COM_MEMORIA_CARTAS", "1") != "0"
@@ -132,6 +146,7 @@ class _Slot:
         self.cartas_jogadas = set()
         self.partida = Partida(
             number_players=NUM_SEATS, round_start=ROUND_START, random_shuffle=True,
+            hp_inicial=sortear_hp_inicial(),
             on_nova_rodada=self._on_nova_rodada,
             on_rodada_finalizada=self._on_rodada_finalizada,
             on_jogo_finalizado=self._on_jogo_finalizado,

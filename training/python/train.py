@@ -24,7 +24,7 @@ import argparse
 import json
 import os
 import time
-from collections import defaultdict
+from collections import defaultdict, deque
 from pathlib import Path
 
 import numpy as np
@@ -38,6 +38,7 @@ import torch
 # qualquer forward pass (por isso logo no import, antes de tudo mais).
 torch.set_num_threads(1)
 
+import pbt
 from env_client import VecEnvBridge, flatten_obs
 from harness_nativo import VecEnvNativo
 from model import ActorCritic, MAX_HAND
@@ -67,6 +68,18 @@ def parse_args():
     p.add_argument("--resume", action="store_true", help="carrega o checkpoint acima antes de começar, em vez de pesos do zero")
     p.add_argument("--log", default=str(RAIZ / "logs" / "train.jsonl"))
     p.add_argument("--render-every", type=int, default=0, help="imprime o resumo de 1 partida a cada N updates (0 = nunca)")
+    p.add_argument("--janela-melhor", type=int, default=100,
+                    help="tamanho da média móvel usada pra decidir 'é o melhor até agora' (evita salvar em cima de ruído de 1 update)")
+
+    # PBT leve entre processos separados -- ver pbt.py e a discussão do
+    # experimento com o especialista de round 1 (mesma ideia, aqui pro jogo
+    # completo).
+    p.add_argument("--pbt-grupo", default=None, help="nome do grupo -- só compete com outras instâncias do MESMO grupo. None = PBT desligado.")
+    p.add_argument("--pbt-nome", default=None, help="identidade desta instância dentro do grupo (default: nome do arquivo de checkpoint)")
+    p.add_argument("--pbt-every", type=int, default=250, help="a cada quantos updates checa o placar e possivelmente copia a melhor")
+    p.add_argument("--pbt-margem", type=float, default=0.02, help="só copia se a melhor estiver pelo menos essa fração melhor (evita copiar por ruído)")
+    p.add_argument("--pbt-boost", type=float, default=0.05, help="entropy_coef temporário aplicado logo depois de copiar (força reexploração a partir do ponto bom)")
+    p.add_argument("--pbt-boost-duracao", type=int, default=150, help="por quantos updates o boost de entropia dura antes de voltar ao normal")
     return p.parse_args()
 
 
@@ -166,6 +179,8 @@ def main():
     args = parse_args()
     Path(args.checkpoint).parent.mkdir(parents=True, exist_ok=True)
     Path(args.log).parent.mkdir(parents=True, exist_ok=True)
+    melhor_checkpoint_path = pbt.caminho_melhor_checkpoint(args.checkpoint)
+    pbt_nome = args.pbt_nome or Path(args.checkpoint).stem
 
     model = ActorCritic()
     if args.resume and Path(args.checkpoint).exists():
@@ -176,18 +191,26 @@ def main():
     ClasseEnv = VecEnvNativo if args.motor == "nativo" else VecEnvBridge
     vec_env = ClasseEnv(num_workers=args.num_workers)
     print(f"{args.num_workers} partidas em paralelo -- motor: {args.motor}")
+    if args.pbt_grupo:
+        print(f"PBT ligado -- grupo '{args.pbt_grupo}', identidade '{pbt_nome}', checa a cada {args.pbt_every} updates")
     log_file = open(args.log, "a")
     pending = {}  # persiste entre updates -- ver comentário no topo de collect_rollout
 
+    janela_diferenca = deque(maxlen=args.janela_melhor)
+    melhor_media_vista = float("inf")
+    boost_ate_update = -1
+
     try:
         for update in range(args.updates):
+            entropy_coef = max(args.entropy_coef, args.pbt_boost) if update < boost_ate_update else args.entropy_coef
+
             render_this_update = args.render_every > 0 and update % args.render_every == 0
             t0 = time.time()
             trajectories, metrics, resumo = collect_rollout(vec_env, model, pending, args.episodes_per_update, render_this_update)
-            ppo_stats = ppo_update(model, optimizer, trajectories, args)
+            ppo_stats = ppo_update(model, optimizer, trajectories, args, entropy_coef)
             dt = time.time() - t0
 
-            registro = {"update": update, "segundos": round(dt, 2), **metrics, **ppo_stats}
+            registro = {"update": update, "segundos": round(dt, 2), "entropy_coef": round(entropy_coef, 5), **metrics, **ppo_stats}
             log_file.write(json.dumps(registro) + "\n")
             log_file.flush()
 
@@ -204,7 +227,27 @@ def main():
                       f"rodadas={resumo['rodadas']} hp_final={resumo['hpFinal']}")
 
             if update % args.checkpoint_every == 0:
-                torch.save(model.state_dict(), args.checkpoint)
+                pbt.salvar_atomico(model.state_dict(), args.checkpoint)
+
+            # -- salva o melhor já visto, não só o mais recente --
+            janela_diferenca.append(metrics["mean_diferenca"])
+            if len(janela_diferenca) == janela_diferenca.maxlen:
+                media_atual = sum(janela_diferenca) / len(janela_diferenca)
+                if media_atual < melhor_media_vista:
+                    melhor_media_vista = media_atual
+                    pbt.salvar_atomico(model.state_dict(), melhor_checkpoint_path)
+
+            # -- PBT: a cada N updates, compara com o grupo e talvez copia a melhor --
+            if args.pbt_grupo and update > 0 and update % args.pbt_every == 0 and len(janela_diferenca) == janela_diferenca.maxlen:
+                minha_media = sum(janela_diferenca) / len(janela_diferenca)
+                resultado = pbt.checar_e_talvez_copiar(
+                    RAIZ, args.pbt_grupo, pbt_nome, minha_media, melhor_checkpoint_path,
+                    model, args.pbt_margem, args.pbt_boost_duracao, update,
+                )
+                if resultado:
+                    melhor_nome, melhor_score, boost_ate_update = resultado
+                    janela_diferenca.clear()
+                    print(f"  [PBT] copiando pesos de '{melhor_nome}' (diff={melhor_score:.4f} vs meu {minha_media:.4f}) -- entropy_coef>={args.pbt_boost} até update {boost_ate_update}")
     finally:
         vec_env.close()
         log_file.close()
