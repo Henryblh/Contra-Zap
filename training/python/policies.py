@@ -60,8 +60,23 @@ class RandomPolicy(Policy):
         return rng.choice(legal_actions(legal_mask))
 
 
+SUPPORTED_OBS_DIMS = (66, 70, 106, 110)
+
+
 def flatten_for_obs_dim(obs, obs_dim):
-    """Achatamento compatível com checkpoints de 70 e do baseline de 66."""
+    """Achatamento compatível com os quatro tamanhos de checkpoint em uso.
+
+    Os tamanhos correspondem às combinações das flags descritas em model.py:
+    COM_FLAG_APOSTOU acrescenta o quarto valor ("já apostou") de cada jogador em
+    hpApostaSteak (+4) e COM_MEMORIA_CARTAS acrescenta 40 valores de cartas já
+    jogadas na rodada. Assim: 66 (nenhuma), 70 (só flag), 106 (só memória) e
+    110 (ambas).
+    """
+    if obs_dim not in SUPPORTED_OBS_DIMS:
+        raise PolicyError(
+            f"Checkpoint usa observação de {obs_dim} valores; suportados: {', '.join(map(str, SUPPORTED_OBS_DIMS))}."
+        )
+
     hand = list(obs["mao"])
     table = list(obs["mesa"])
     players = list(obs["hpApostaSteak"])
@@ -69,18 +84,29 @@ def flatten_for_obs_dim(obs, obs_dim):
     if len(players) != 16:
         raise PolicyError(f"Observação inválida: hpApostaSteak tem {len(players)} valores; esperado 16.")
 
-    if obs_dim == 70:
+    com_flag = obs_dim in (70, 110)
+    com_memoria = obs_dim in (106, 110)
+
+    if com_flag:
         player_values = players
-    elif obs_dim == 66:
+    else:
         # Remove o quarto valor de cada jogador: a flag "já apostou" que não
         # existia no baseline antigo.
         player_values = []
         for index in range(0, len(players), 4):
             player_values.extend(players[index:index + 3])
-    else:
-        raise PolicyError(f"Checkpoint usa observação de {obs_dim} valores; suportados: 66 e 70.")
 
     values = hand + table + player_values + [obs["viraValor"], obs["cartasRodada"]]
+
+    if com_memoria:
+        memoria = list(obs.get("memoria", []))
+        if len(memoria) != 40:
+            raise PolicyError(
+                f"Checkpoint exige memória de cartas (obs de {obs_dim}), mas a observação trouxe "
+                f"{len(memoria)} valores; rode o bridge com COM_MEMORIA_CARTAS=1."
+            )
+        values += memoria
+
     if len(values) != obs_dim:
         raise PolicyError(f"Observação montada tem {len(values)} valores; checkpoint exige {obs_dim}.")
     return values
@@ -123,8 +149,10 @@ def _model_from_state_dict(state_dict, path, device):
                 f"Checkpoint incompatível em {path}: {key} tem formato {tuple(tensor.shape)}, esperado {expected}."
             )
 
-    if obs_dim not in (66, 70):
-        raise PolicyError(f"Checkpoint incompatível em {path}: entrada {obs_dim}; suportadas 66 e 70.")
+    if obs_dim not in SUPPORTED_OBS_DIMS:
+        raise PolicyError(
+            f"Checkpoint incompatível em {path}: entrada {obs_dim}; suportadas {', '.join(map(str, SUPPORTED_OBS_DIMS))}."
+        )
     if not all(torch.is_tensor(value) and torch.isfinite(value).all().item() for value in state_dict.values()):
         raise PolicyError(f"Checkpoint inválido em {path}: contém pesos não finitos.")
 
