@@ -38,7 +38,7 @@ CARTA_ACTIONS = MAX_HAND
 
 
 class ActorCritic(nn.Module):
-    def __init__(self, hidden=128, obs_dim=None):
+    def __init__(self, hidden=256, obs_dim=None):
         super().__init__()
         self.obs_dim = OBS_DIM if obs_dim is None else obs_dim
         self.trunk = nn.Sequential(

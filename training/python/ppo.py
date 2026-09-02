@@ -37,7 +37,7 @@ def compute_gae(rewards, values, dones, gamma, lam):
     return advantages, returns
 
 
-def _run_group(model, optimizer, group, kind, args, stats_acc):
+def _run_group(model, optimizer, group, kind, args, entropy_coef, stats_acc):
     if not group:
         return
 
@@ -67,7 +67,7 @@ def _run_group(model, optimizer, group, kind, args, stats_acc):
             surr2 = torch.clamp(ratio, 1 - args.clip_eps, 1 + args.clip_eps) * adv_b[mb]
             policy_loss = -torch.min(surr1, surr2).mean()
             value_loss = nn.functional.mse_loss(values_pred, ret_b[mb])
-            loss = policy_loss + 0.5 * value_loss - args.entropy_coef * entropy
+            loss = policy_loss + 0.5 * value_loss - entropy_coef * entropy
 
             optimizer.zero_grad()
             loss.backward()
@@ -83,7 +83,13 @@ def _run_group(model, optimizer, group, kind, args, stats_acc):
             stats_acc[f"{kind}_approx_kl"].append(approx_kl)
 
 
-def ppo_update(model, optimizer, trajectories, args):
+def ppo_update(model, optimizer, trajectories, args, entropy_coef=None):
+    # entropy_coef=None mantém compatibilidade com quem ainda não passa
+    # (usa args.entropy_coef, comportamento antigo) -- quem quer controlar
+    # isso de fora (cronograma, boost de PBT) passa o valor explícito.
+    if entropy_coef is None:
+        entropy_coef = args.entropy_coef
+
     samples = {"aposta": [], "carta": []}
     for transitions in trajectories.values():
         rewards = [t["reward"] for t in transitions]
@@ -94,7 +100,7 @@ def ppo_update(model, optimizer, trajectories, args):
             samples[t["kind"]].append({**t, "adv": adv, "ret": ret})
 
     stats_acc = defaultdict(list)
-    _run_group(model, optimizer, samples["aposta"], "aposta", args, stats_acc)
-    _run_group(model, optimizer, samples["carta"], "carta", args, stats_acc)
+    _run_group(model, optimizer, samples["aposta"], "aposta", args, entropy_coef, stats_acc)
+    _run_group(model, optimizer, samples["carta"], "carta", args, entropy_coef, stats_acc)
 
     return {k: float(np.mean(v)) for k, v in stats_acc.items() if v}

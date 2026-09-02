@@ -32,14 +32,18 @@ def main():
             continue
         janela = linhas[-args.janela:]
         diff = sum(r["mean_diferenca"] for r in janela) / len(janela)
-        rodadas = sum(r["mean_rounds"] for r in janela) / len(janela)
+        # nem todo log tem mean_rounds -- o especialista de round 1
+        # (train_round1.py) não loga isso, cada episódio já é 1 rodada só.
+        tem_rodadas = all("mean_rounds" in r for r in janela)
+        rodadas = (sum(r["mean_rounds"] for r in janela) / len(janela)) if tem_rodadas else None
         linhas_ranking.append((nome, len(linhas), diff, rodadas))
 
     linhas_ranking.sort(key=lambda r: r[2])
     print(f"{'nome':<16} {'updates':>8} {'diff/rodada':>12} {'rodadas/ep':>11}")
     print("-" * 50)
     for nome, n, diff, rodadas in linhas_ranking:
-        print(f"{nome:<16} {n:>8} {diff:>12.4f} {rodadas:>11.2f}")
+        rodadas_str = f"{rodadas:.2f}" if rodadas is not None else "--"
+        print(f"{nome:<16} {n:>8} {diff:>12.4f} {rodadas_str:>11}")
 
 
 if __name__ == "__main__":
