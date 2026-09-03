@@ -115,13 +115,46 @@ button.secundario {
     min-height: 40px;
 }
 
+/* Toda carta agora é desenhada "grande": rank enorme + naipe colorido,
+   um retângulo fixo tipo carta de baralho. Legível mesmo com um filtro
+   pesado (pixelado etc.) na tela toda. */
 .carta {
+    display: inline-flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    vertical-align: top;
+    width: 92px;
     border: 1px solid var(--borda);
     border-radius: 6px;
-    padding: 8px 10px;
+    padding: 12px 8px 8px;
     background: #1f2028;
     font-size: 13px;
     text-align: center;
+}
+
+/* Span interno que embrulha só a face (rank + naipe) — a borda, inclusive
+   a verde da vencedora, fica no .carta de fora. */
+.carta-face {
+    display: inline-block;
+}
+
+.carta-grande-face {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    line-height: 0.9;
+}
+
+.carta-grande-rank {
+    font-size: 44px;
+    font-weight: 800;
+    letter-spacing: -0.04em;
+}
+
+.carta-grande-naipe {
+    font-size: 20px;
+    margin-top: 4px;
 }
 
 .carta-clicavel {
@@ -132,6 +165,114 @@ button.secundario {
 .carta-clicavel:not(:disabled) {
     border-color: var(--acento);
     cursor: pointer;
+}
+
+/* Vaza recém-encerrada: a vencedora ganha contorno verde e a mesa fica
+   congelada ~1,6s (PAUSA_VAZA_MS em Partida.jsx) antes de limpar. */
+.carta-vencedora {
+    border-color: #3fbf6f;
+    box-shadow: 0 0 0 2px #3fbf6f, 0 0 14px rgba(63, 191, 111, 0.45);
+}
+
+.vaza-resultado {
+    margin: 8px 0 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #3fbf6f;
+}
+
+/* Painel flutuante pra tacar filtro CSS/SVG na tela toda. Fica num portal
+   pro <body> (fora do #root) pra não ser afetado pelo próprio filtro. */
+.experimentos {
+    position: fixed;
+    right: 12px;
+    bottom: 12px;
+    z-index: 9999;
+    width: 220px;
+    border: 1px solid var(--borda);
+    border-radius: 8px;
+    padding: 8px 12px;
+    background: #1f2028;
+    color: var(--texto);
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.45);
+}
+
+.experimentos summary {
+    cursor: pointer;
+    font-size: 13px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    color: var(--texto-fraco);
+}
+
+.experimentos-corpo {
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    margin-top: 10px;
+}
+
+.experimentos-corpo select {
+    background: #1f2028;
+    border: 1px solid var(--borda);
+    border-radius: 6px;
+    color: var(--texto);
+    padding: 6px 8px;
+    font-size: 14px;
+}
+
+.experimentos-corpo input[type="range"] {
+    width: 100%;
+}
+
+/* Linhas de checkbox do painel (grão colorido / animar) — o label padrão
+   é coluna, aqui vira linha com o check ao lado do texto. */
+.experimentos-corpo .linha-check {
+    flex-direction: row;
+    align-items: center;
+    gap: 6px;
+    color: var(--texto);
+    font-size: 13px;
+}
+
+.experimentos-corpo .linha-check input {
+    width: auto;
+}
+
+.experimentos-sep {
+    width: 100%;
+    border: none;
+    border-top: 1px solid var(--borda);
+    margin: 2px 0;
+}
+
+/* Overlay de scanlines do filtro CRT — linhas escuras, multiply por cima
+   da tela toda. Fica dentro do #root (não num portal) de propósito: assim
+   curva/pixela junto quando os filtros SVG estão ligados.
+   --sl-op = opacidade da linha; --sl-periodo = altura de um ciclo
+   linha+vão (metade escura, metade transparente): maior = linhas mais
+   grossas e menos numerosas. */
+.fx-scanlines {
+    position: fixed;
+    inset: 0;
+    z-index: 40;
+    pointer-events: none;
+    mix-blend-mode: multiply;
+    background: repeating-linear-gradient(
+        to bottom,
+        rgba(0, 0, 0, var(--sl-op, 0.3)) 0,
+        rgba(0, 0, 0, var(--sl-op, 0.3)) calc(var(--sl-periodo, 3px) * 0.5),
+        rgba(0, 0, 0, 0) calc(var(--sl-periodo, 3px) * 0.5),
+        rgba(0, 0, 0, 0) var(--sl-periodo, 3px)
+    );
+}
+
+/* Só guarda o <filter> — não deve ocupar espaço nem capturar clique. */
+.fx-defs {
+    position: absolute;
+    width: 0;
+    height: 0;
+    pointer-events: none;
 }
 
 .vazio {
