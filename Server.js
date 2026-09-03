@@ -26,6 +26,17 @@ registrarSocketServer(io);
 // Se essa pasta não existir ainda, rode o build primeiro; ver README.md.
 app.use(express.static('public/dist'));
 
+// Endpoint de healthcheck: usado pelo Docker (HEALTHCHECK) e por qualquer
+// orquestrador/monitoramento pra saber se o processo está de pé e
+// respondendo, sem depender de abrir a partida inteira pra testar.
+app.get('/health', (req, res) => {
+  res.status(200).json({
+    status: 'ok',
+    uptime: process.uptime(),
+    timestamp: new Date().toISOString(),
+  });
+});
+
 app.get('/', (req, res) => {
     res.sendFile(__dirname + '/public/dist/index.html');
 });
