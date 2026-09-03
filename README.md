@@ -1,11 +1,16 @@
 # Contra ZAP
 
+![CI](https://github.com/Henryblh/Contra-Zap/actions/workflows/ci.yml/badge.svg)
+
 Jogo de cartas estilo truco, multiplayer, jogado no navegador. Motor de regras
 em Node.js, comunicação em tempo real via Socket.io, front-end em React.
 
 ## Pré-requisitos
 
-- [Node.js](https://nodejs.org/) instalado (qualquer versão recente, 18+).
+- [Node.js](https://nodejs.org/) **22 ou superior** (o `better-sqlite3@13`
+  exige Node ≥ 22 — versões anteriores rodam, mas travam com segfault na
+  primeira operação de banco, sem mensagem de erro clara. Se for rodar sem
+  Docker, confirme sua versão com `node -v` antes de reportar bug).
 
 ## Como rodar o projeto (comece por aqui)
 
@@ -63,6 +68,60 @@ O código do front fica todo em `public/app/src`:
 **Antes de mexer no protocolo de eventos (o que o cliente manda/recebe do
 servidor), leia `conexao/PROTOCOLO.md`** — é a fonte de verdade de todos os
 eventos socket.io, payloads e erros possíveis.
+
+## Como rodar com Docker
+
+Alternativa que não depende de ter Node instalado na versão certa na sua
+máquina — tudo roda isolado em container.
+
+**Pré-requisito**: [Docker Desktop](https://www.docker.com/products/docker-desktop)
+instalado e rodando.
+
+1. Na raiz do projeto, na primeira vez, crie os arquivos que o SQLite/JWT
+   geram sozinhos (evita o Docker criar pasta no lugar de arquivo):
+   ```
+   touch banco.sqlite jwt.secret
+   ```
+2. Suba o container:
+   ```
+   docker compose up --build
+   ```
+3. Abra [localhost:3000](http://localhost:3000).
+
+Pra rodar em segundo plano (sem prender o terminal):
+```
+docker compose up -d --build
+```
+
+Pra parar:
+```
+docker compose down
+```
+
+### Verificando se o servidor está saudável
+
+```
+curl http://localhost:3000/health
+```
+
+Deve retornar algo como `{"status":"ok","uptime":...,"timestamp":"..."}`.
+O Docker também monitora isso sozinho — `docker compose ps` mostra
+`(healthy)` depois de alguns segundos de container de pé.
+
+### Por que a imagem usa Node 22 + Alpine
+
+Só documentando pra ninguém precisar redescobrir isso: o binário nativo do
+`better-sqlite3` não tem prebuild compatível pra Node 20, e a combinação
+certa (Node 22 + musl/Alpine + arm64) ainda assim exige compilar o addon do
+zero dentro do container — por isso o `Dockerfile` instala `python3 make
+g++` mesmo usando Alpine. Trocar a versão do Node no Dockerfile sem
+confirmar compatibilidade com o `better-sqlite3` provavelmente quebra o
+build de novo.
+
+### CI/CD
+
+Todo push/PR contra a `main` roda automaticamente testes (`npm test`) e o
+build da imagem Docker via GitHub Actions — ver `.github/workflows/ci.yml`.
 
 ## Estrutura do projeto
 
@@ -138,7 +197,6 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
 
 ## Ferramentas de debug (linha de comando)
 
-
 - `node Main.js` — simula uma partida inteira com 4 jogadores fixos, sem
   rede nenhuma, jogadas automáticas. Bom pra testar regras do `game/` isoladas.
 - `node Main2.js` — conecta num `Server.js` já rodando como um jogador de
@@ -160,7 +218,6 @@ polimento.
   estratégia melhor e, mais pra frente, treinar com ML.
 - Subir o servidor num ambiente de verdade, com sockets web funcionando fora
   da rede local (hoje só foi testado em `localhost`).
-
 
 ### PIN — só mexer se alguém reclamar
 
