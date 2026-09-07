@@ -230,6 +230,15 @@ Descritores aceitos: `checkpoint=<arquivo.pt>`, `heuristic`, `random` e
 `act(kind, obs, legal_mask, rng)` e devolver uma ação permitida. O resultado
 aparece no console e é salvo como JSON em `training/logs/`.
 
+### Treino contra liga
+
+O treinador aceita um manifesto de liga com checkpoints congelados e executa
+PPO somente nos assentos controlados pelo aprendiz. A mistura usada no
+experimento evolutivo é 50% self-play, 35% campeões históricos selecionados
+por PFSP e 15% âncoras (H, overnight, heurístico e aleatório). O orquestrador
+em `training/python/orquestrar_4dias.py` gera esses manifestos, preserva
+checkpoints completos e usa torneios no motor JavaScript para a seleção.
+
 ## O que falta fazer
 
 Gaps estruturais de verdade — o motor/protocolo tem um buraco real, não é só

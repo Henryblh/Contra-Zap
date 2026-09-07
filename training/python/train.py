@@ -23,6 +23,7 @@
 import argparse
 import json
 import os
+import random
 import time
 from collections import defaultdict, deque
 from pathlib import Path
@@ -39,8 +40,10 @@ import torch
 torch.set_num_threads(1)
 
 import pbt
+from training_state import atomic_save, finite_state_dict, load_training_state, save_training_state
 from env_client import VecEnvBridge, flatten_obs
 from harness_nativo import VecEnvNativo
+from league import EpisodeAssignment, LeagueController
 from model import ActorCritic, MAX_HAND
 from ppo import masked_categorical, ppo_update
 
@@ -63,9 +66,18 @@ def parse_args():
     p.add_argument("--entropy-coef", type=float, default=0.01)
     p.add_argument("--epochs", type=int, default=4)
     p.add_argument("--minibatch-size", type=int, default=256)
+    p.add_argument("--target-kl", type=float, default=0.02)
     p.add_argument("--checkpoint", default=str(RAIZ / "checkpoints" / "latest.pt"))
     p.add_argument("--checkpoint-every", type=int, default=50)
     p.add_argument("--resume", action="store_true", help="carrega o checkpoint acima antes de começar, em vez de pesos do zero")
+    p.add_argument("--training-state", help="checkpoint completo (.train.pt); default deriva de --checkpoint")
+    p.add_argument("--init-from", help="pesos iniciais legados, por exemplo noite1_H.melhor.pt")
+    p.add_argument("--seed", type=int, help="seed reprodutível deste worker")
+    p.add_argument("--profile", choices=["mixed", "production"], default="mixed")
+    p.add_argument("--league-manifest", help="manifesto versionado da liga; validado e registrado pelo worker")
+    p.add_argument("--max-runtime-seconds", type=float, default=0)
+    p.add_argument("--stop-file", help="encerra limpo após o update ao encontrar este arquivo")
+    p.add_argument("--heartbeat", help="arquivo JSON atômico atualizado a cada update")
     p.add_argument("--log", default=str(RAIZ / "logs" / "train.jsonl"))
     p.add_argument("--render-every", type=int, default=0, help="imprime o resumo de 1 partida a cada N updates (0 = nunca)")
     p.add_argument("--janela-melhor", type=int, default=100,
@@ -83,7 +95,19 @@ def parse_args():
     return p.parse_args()
 
 
-def collect_rollout(vec_env, model, pending, episodes_per_update, render_this_update):
+def _self_play_assignment():
+    return EpisodeAssignment("self_play", "self_play", frozenset(range(4)))
+
+
+def _merge_numeric_tree(target, source):
+    for key, value in source.items():
+        if isinstance(value, dict):
+            _merge_numeric_tree(target.setdefault(key, {}), value)
+        elif isinstance(value, (int, float)) and not isinstance(value, bool):
+            target[key] = target.get(key, 0) + value
+
+
+def collect_rollout(vec_env, model, pending, episodes_per_update, render_this_update, league=None):
     # `pending` é do chamador (não recriado aqui) — uma transição pode ficar
     # em aberto bem no instante em que este update para de coletar; se o
     # dict fosse recriado a cada chamada, a próxima mensagem que fecharia
@@ -92,36 +116,74 @@ def collect_rollout(vec_env, model, pending, episodes_per_update, render_this_up
     trajectories = defaultdict(list)      # (worker_id, episode, seat) -> lista de transições fechadas
 
     episodes_completed = set()            # (worker_id, episode) -- só conta episódio que de fato FECHOU
-    reward_por_ep = defaultdict(float)
-    diferenca_samples = []                # -reward de mensagens não-finais == |aposta-steak| da rodada anterior
+    reward_aprendiz = defaultdict(float)
+    reward_global_por_ep = defaultdict(float)
+    erro_total = 0.0
+    rodadas_metricas = 0
+    erro_global = 0.0
+    rodadas_globais = 0
+    metricas_finalizadas = set()
     rodadas_por_ep = {}
+    finais_recebidos = defaultdict(set)
+    resumos_por_ep = {}
     resumo_amostra = None                 # 1 resumo pra --render-every, se pedido
+    league_counts = {
+        "episodes": {"self_play": 0, "historical": 0, "anchors": 0},
+        "lineups": {"self_play": 0, "1x3": 0, "2x2": 0},
+        "opponents": {},
+        "learner_seats": {str(seat): 0 for seat in range(4)},
+        "actions": {"learner": 0, "opponent": 0},
+        "ppo_transitions": 0,
+    }
 
     while len(episodes_completed) < episodes_per_update:
         # bloqueia só pela primeira mensagem; o resto do lote é o que mais
         # já estiver pronto na fila NESSE instante — nenhum worker é feito
         # esperar mais que isso, então não perde paralelismo.
         batch = vec_env.get_batch()
-        pendentes_aposta, pendentes_carta = [], []
+        pendentes_aposta, pendentes_carta, pendentes_oponentes = [], [], []
 
         for worker_id, msg in batch:
             ep, seat, kind = msg["episode"], msg["seat"], msg["kind"]
             ep_key = (worker_id, ep)
-            reward_por_ep[ep_key] += msg["reward"]
-            if kind != "final":
-                diferenca_samples.append(-msg["reward"])
-            else:
-                episodes_completed.add(ep_key)
-                rodadas_por_ep[ep_key] = msg["resumo"]["rodadas"]
-                if render_this_update and resumo_amostra is None:
-                    resumo_amostra = msg["resumo"]
+            assignment = league.assignment(worker_id, ep) if league else _self_play_assignment()
+            reward_global_por_ep[ep_key] += msg["reward"]
+            if assignment.learner_controls(seat):
+                reward_aprendiz[(worker_id, ep, seat)] += msg["reward"]
+            if kind == "final":
+                finais_recebidos[ep_key].add(seat)
+                resumos_por_ep.setdefault(ep_key, msg["resumo"])
 
-            pkey = (worker_id, seat)
+            pkey = (worker_id, ep, seat)
             if pkey in pending:
                 aberto = pending.pop(pkey)
                 trajectories[(worker_id, aberto["episode"], seat)].append(
                     {**aberto, "reward": msg["reward"], "done": msg["done"]}
                 )
+
+            if kind == "final" and len(finais_recebidos[ep_key]) == 4 and ep_key not in episodes_completed:
+                episodes_completed.add(ep_key)
+                resumo_final = resumos_por_ep[ep_key]
+                rodadas_por_ep[ep_key] = resumo_final["rodadas"]
+                metricas_finalizadas.add(ep_key)
+                by_seat = {item["seat"]: item for item in resumo_final.get("metricasPorSeat", [])}
+                for item in by_seat.values():
+                    erro_global += item["erroAbsolutoTotal"]
+                    rodadas_globais += item["rodadasJogadas"]
+                for learner_seat in assignment.learner_seats:
+                    item = by_seat[learner_seat]
+                    erro_total += item["erroAbsolutoTotal"]
+                    rodadas_metricas += item["rodadasJogadas"]
+                    league_counts["learner_seats"][str(learner_seat)] += 1
+                league_counts["episodes"][assignment.mode] += 1
+                league_counts["lineups"][assignment.lineup] += 1
+                if assignment.opponent_id:
+                    opponents = league_counts["opponents"]
+                    opponents[assignment.opponent_id] = opponents.get(assignment.opponent_id, 0) + 1
+                if league:
+                    league.finish_episode(worker_id, ep)
+                if render_this_update and resumo_amostra is None:
+                    resumo_amostra = resumo_final
 
             if msg["actionRequired"]:
                 # guarda a observação crua (lista python) -- criar o tensor
@@ -133,7 +195,16 @@ def collect_rollout(vec_env, model, pending, episodes_per_update, render_this_up
                 # subprocess ainda manda o formato de dicionário do protocolo.
                 obs_lista = msg["obs"] if isinstance(msg["obs"], list) else flatten_obs(msg["obs"])
                 entry = (worker_id, seat, ep, obs_lista, msg["legalMask"])
-                (pendentes_aposta if kind == "aposta" else pendentes_carta).append(entry)
+                if assignment.learner_controls(seat):
+                    (pendentes_aposta if kind == "aposta" else pendentes_carta).append(entry)
+                else:
+                    if league is None:  # pragma: no cover - invariante defensiva
+                        raise RuntimeError("assento adversário sem controlador de liga")
+                    pendentes_oponentes.append({
+                        "worker_id": worker_id, "seat": seat, "episode": ep,
+                        "obs": obs_lista, "mask": msg["legalMask"], "kind": kind,
+                        "assignment": assignment,
+                    })
 
         # um forward pass e UMA amostragem por grupo (aposta/carta), pro
         # lote inteiro de uma vez -- monta um array numpy primeiro (rápido,
@@ -159,38 +230,80 @@ def collect_rollout(vec_env, model, pending, episodes_per_update, render_this_up
             valores_lista = values.tolist()
 
             for i, (worker_id, seat, ep, _obs_lista, mask) in enumerate(grupo):
-                pending[(worker_id, seat)] = {
+                pending[(worker_id, ep, seat)] = {
                     "episode": ep, "obs": obs_batch[i], "kind": kind,
                     "action": acoes[i], "logp": logps_lista[i],
                     "value": valores_lista[i], "mask": mask,
                 }
                 vec_env.send_action(worker_id, acoes[i])
+                league_counts["actions"]["learner"] += 1
 
+        if pendentes_oponentes:
+            for entry, action in zip(pendentes_oponentes, league.act_opponents(pendentes_oponentes)):
+                vec_env.send_action(entry["worker_id"], action)
+                league_counts["actions"]["opponent"] += 1
+
+    # Associa bootstrap às trajetórias que ficaram abertas no corte do lote.
+    for key, transitions in trajectories.items():
+        worker_id, episode, seat = key
+        next_transition = pending.get((worker_id, episode, seat))
+        if transitions and next_transition and next_transition["episode"] == episode and not transitions[-1]["done"]:
+            transitions[-1]["bootstrap_value"] = next_transition["value"]
+
+    league_counts["ppo_transitions"] = sum(len(items) for items in trajectories.values())
+    if league_counts["ppo_transitions"] == 0:
+        raise RuntimeError("rollout terminou sem transições do aprendiz")
+
+    bid_error = erro_total / rodadas_metricas if rodadas_metricas else 0.0
     metrics = {
         "episodes": len(episodes_completed),
-        "mean_reward_per_seat": float(np.mean(list(reward_por_ep.values()))) / 4 if reward_por_ep else 0.0,
-        "mean_diferenca": float(np.mean(diferenca_samples)) if diferenca_samples else 0.0,
+        "mean_reward_per_seat": float(np.mean(list(reward_aprendiz.values()))) if reward_aprendiz else 0.0,
+        "mean_global_reward_per_episode": float(np.mean(list(reward_global_por_ep.values()))) if reward_global_por_ep else 0.0,
+        "mean_absolute_bid_error": bid_error,
+        "mean_diferenca": bid_error,  # alias para logs antigos
+        "global_mean_absolute_bid_error": erro_global / rodadas_globais if rodadas_globais else 0.0,
         "mean_rounds": float(np.mean(list(rodadas_por_ep.values()))) if rodadas_por_ep else 0.0,
+        "league": league_counts,
     }
     return trajectories, metrics, resumo_amostra
 
 
 def main():
     args = parse_args()
+    if args.seed is not None:
+        random.seed(args.seed)
+        np.random.seed(args.seed)
+        torch.manual_seed(args.seed)
     Path(args.checkpoint).parent.mkdir(parents=True, exist_ok=True)
     Path(args.log).parent.mkdir(parents=True, exist_ok=True)
+    league = LeagueController(args.league_manifest, slot_seed=args.seed or 0) if args.league_manifest else None
+    training_state = args.training_state or str(Path(args.checkpoint).with_suffix(".train.pt"))
     melhor_checkpoint_path = pbt.caminho_melhor_checkpoint(args.checkpoint)
     pbt_nome = args.pbt_nome or Path(args.checkpoint).stem
 
     model = ActorCritic()
-    if args.resume and Path(args.checkpoint).exists():
-        model.load_state_dict(torch.load(args.checkpoint))
-        print(f"retomando de {args.checkpoint}")
+    if model.obs_dim != 110 or model.trunk[0].out_features != 256:
+        raise RuntimeError("modelos evolutivos devem usar obrigatoriamente arquitetura 110x256")
     optimizer = torch.optim.Adam(model.parameters(), lr=args.lr)
+    start_update = 0
+    loaded_state = None
+    if args.resume and Path(training_state).exists():
+        loaded_state = load_training_state(training_state, model, optimizer)
+        start_update = int(loaded_state.get("update", 0)) + 1
+        print(f"retomando de {training_state}")
+    elif args.resume and Path(args.checkpoint).exists():
+        load_training_state(args.checkpoint, model, optimizer)
+        print(f"retomando pesos de {args.checkpoint}")
+    elif args.init_from:
+        load_training_state(args.init_from, model)
+        print(f"inicializando de {args.init_from}")
 
     ClasseEnv = VecEnvNativo if args.motor == "nativo" else VecEnvBridge
-    vec_env = ClasseEnv(num_workers=args.num_workers)
+    vec_env = (ClasseEnv(num_workers=args.num_workers, seed=args.seed, profile=args.profile)
+               if args.motor == "nativo" else ClasseEnv(num_workers=args.num_workers))
     print(f"{args.num_workers} partidas em paralelo -- motor: {args.motor}")
+    if league:
+        print(f"liga ativa -- manifesto {league.sha256[:12]} -- self-play/históricos/âncoras 50/35/15")
     if args.pbt_grupo:
         print(f"PBT ligado -- grupo '{args.pbt_grupo}', identidade '{pbt_nome}', checa a cada {args.pbt_every} updates")
     log_file = open(args.log, "a")
@@ -199,15 +312,24 @@ def main():
     janela_diferenca = deque(maxlen=args.janela_melhor)
     melhor_media_vista = float("inf")
     boost_ate_update = -1
+    league_cumulative = {}
+    if loaded_state:
+        previous = loaded_state.get("metadata", {}).get("league", {}).get("cumulative")
+        if isinstance(previous, dict):
+            league_cumulative = previous
 
+    started_at = time.monotonic()
     try:
-        for update in range(args.updates):
+        for update in range(start_update, start_update + args.updates):
             entropy_coef = max(args.entropy_coef, args.pbt_boost) if update < boost_ate_update else args.entropy_coef
 
             render_this_update = args.render_every > 0 and update % args.render_every == 0
             t0 = time.time()
-            trajectories, metrics, resumo = collect_rollout(vec_env, model, pending, args.episodes_per_update, render_this_update)
+            trajectories, metrics, resumo = collect_rollout(
+                vec_env, model, pending, args.episodes_per_update, render_this_update, league=league
+            )
             ppo_stats = ppo_update(model, optimizer, trajectories, args, entropy_coef)
+            _merge_numeric_tree(league_cumulative, metrics["league"])
             dt = time.time() - t0
 
             registro = {"update": update, "segundos": round(dt, 2), "entropy_coef": round(entropy_coef, 5), **metrics, **ppo_stats}
@@ -226,8 +348,23 @@ def main():
                 print(f"  exemplo de partida: vencedor=assento{resumo['vencedor']} "
                       f"rodadas={resumo['rodadas']} hp_final={resumo['hpFinal']}")
 
+            if not finite_state_dict(model.state_dict()):
+                raise FloatingPointError("pesos não finitos; último checkpoint saudável foi preservado")
             if update % args.checkpoint_every == 0:
-                pbt.salvar_atomico(model.state_dict(), args.checkpoint)
+                atomic_save(model.state_dict(), args.checkpoint)
+                metadata = {"league": league.checkpoint_metadata(league_cumulative)} if league else {}
+                save_training_state(training_state, model=model, optimizer=optimizer, update=update, args=args,
+                                    metadata=metadata)
+            if args.heartbeat:
+                Path(args.heartbeat).parent.mkdir(parents=True, exist_ok=True)
+                temp = Path(args.heartbeat).with_suffix(".tmp")
+                heartbeat = {"update": update, "time": time.time(), "league": metrics["league"]}
+                if league:
+                    heartbeat["league_manifest_sha256"] = league.sha256
+                    heartbeat["league_manifest"] = league.manifest
+                    heartbeat["league_cumulative"] = league_cumulative
+                temp.write_text(json.dumps(heartbeat), encoding="utf-8")
+                os.replace(temp, args.heartbeat)
 
             # -- salva o melhor já visto, não só o mais recente --
             janela_diferenca.append(metrics["mean_diferenca"])
@@ -248,6 +385,12 @@ def main():
                     melhor_nome, melhor_score, boost_ate_update = resultado
                     janela_diferenca.clear()
                     print(f"  [PBT] copiando pesos de '{melhor_nome}' (diff={melhor_score:.4f} vs meu {minha_media:.4f}) -- entropy_coef>={args.pbt_boost} até update {boost_ate_update}")
+            if (args.max_runtime_seconds and time.monotonic() - started_at >= args.max_runtime_seconds) or (args.stop_file and Path(args.stop_file).exists()):
+                atomic_save(model.state_dict(), args.checkpoint)
+                metadata = {"league": league.checkpoint_metadata(league_cumulative)} if league else {}
+                save_training_state(training_state, model=model, optimizer=optimizer, update=update, args=args,
+                                    metadata=metadata)
+                break
     finally:
         vec_env.close()
         log_file.close()

@@ -4,6 +4,7 @@
 #
 # Rodar:
 #   training\.venv\Scripts\python.exe training\python\export_weights.py
+import argparse
 import json
 from pathlib import Path
 
@@ -52,5 +53,16 @@ def exportar(ckpt_path, saida_path, com_carta):
 
 
 if __name__ == "__main__":
-    for ckpt, saida, com_carta in ALVOS:
-        exportar(ckpt, saida, com_carta)
+    parser = argparse.ArgumentParser(description="Exporta pesos PPO para o formato JS")
+    parser.add_argument("--checkpoint", help="checkpoint .weights.pt/.pt a exportar")
+    parser.add_argument("--output", help="JSON de destino")
+    parser.add_argument("--without-card-head", action="store_true")
+    args = parser.parse_args()
+    if bool(args.checkpoint) != bool(args.output):
+        parser.error("--checkpoint e --output devem ser usados juntos")
+    if args.checkpoint:
+        exportar(Path(args.checkpoint), Path(args.output), not args.without_card_head)
+    else:
+        for ckpt, saida, com_carta in ALVOS:
+            if ckpt.exists():
+                exportar(ckpt, saida, com_carta)

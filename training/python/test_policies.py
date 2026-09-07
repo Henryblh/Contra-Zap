@@ -12,6 +12,7 @@ from policies import (
     RandomPolicy,
     legal_actions,
     policy_action,
+    project_flat_obs,
     validate_action,
 )
 
@@ -75,6 +76,17 @@ class PolicyTests(unittest.TestCase):
     def test_loads_custom_strategy(self):
         handle = PolicyFactory().create("strategy=test_policies:ExampleStrategy")
         self.assertEqual(policy_action(handle, "carta", sample_obs(), [0, 1, 1], None), 1)
+
+    def test_projects_canonical_observation_to_legacy_layouts(self):
+        obs = list(range(110))
+        without_flags = list(range(52))
+        for start in range(52, 68, 4):
+            without_flags.extend(range(start, start + 3))
+        without_flags.extend(range(68, 70))
+        self.assertEqual(project_flat_obs(obs, 110), obs)
+        self.assertEqual(project_flat_obs(obs, 70), list(range(70)))
+        self.assertEqual(project_flat_obs(obs, 66), without_flags)
+        self.assertEqual(project_flat_obs(obs, 106), without_flags + list(range(70, 110)))
 
 
 if __name__ == "__main__":

@@ -1,6 +1,10 @@
+import json
+import tempfile
 import unittest
+from pathlib import Path
+from types import SimpleNamespace
 
-from evaluate import Tournament, parse_args
+from evaluate import Tournament, parse_args, run_suite
 
 
 class EvaluateTests(unittest.TestCase):
@@ -27,6 +31,23 @@ class EvaluateTests(unittest.TestCase):
         self.assertEqual(len(report["winner_sequence"]), 4)
         self.assertEqual(set(report["seats"]), {"0", "1", "2", "3"})
         self.assertEqual(sum(stats["wins"] for stats in report["seats"].values()), 4)
+
+    def test_suite_accepts_candidate_specific_task(self):
+        with tempfile.TemporaryDirectory() as directory:
+            root = Path(directory)
+            manifest = root / "suite.json"
+            output = root / "result.json"
+            manifest.write_text(json.dumps({
+                "schema_version": 1,
+                "candidates": [{"id": "candidate", "spec": "heuristic"}],
+                "contexts": [],
+                "tasks": [{"candidate": "candidate", "context": "vs_history:g001",
+                           "opponent": "random", "seeds": [18], "games_per_seed": 4}],
+            }), encoding="utf-8")
+            self.assertEqual(run_suite(SimpleNamespace(manifest=str(manifest), jobs=1, output=str(output))), 0)
+            result = json.loads(output.read_text(encoding="utf-8"))
+            self.assertEqual(result["results"][0]["candidate"], "candidate")
+            self.assertEqual(result["results"][0]["context"], "vs_history:g001")
 
 
 if __name__ == "__main__":

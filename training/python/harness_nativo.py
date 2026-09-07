@@ -131,8 +131,10 @@ def mask_carta(tamanho_mao):
 # --- um "slot" = uma partida sempre rodando, emenda a próxima sozinha quando acaba ---
 
 class _Slot:
-    def __init__(self, worker_id):
+    def __init__(self, worker_id, seed=None, profile="mixed"):
         self.worker_id = worker_id
+        self.rng = random.Random((seed or 0) + worker_id * 100003)
+        self.profile = profile
         self._proximo_episodio = 0
         self._fila_saida = []
         self._decisao_pendente = None
@@ -142,11 +144,23 @@ class _Slot:
         self.numero_episodio = self._proximo_episodio
         self._proximo_episodio += 1
         self.pendente = [0.0] * NUM_SEATS
+        self.metricas = [{"seat": i, "rodadasJogadas": 0, "apostasExatas": 0,
+                          "erroAbsolutoTotal": 0, "totalApostado": 0, "totalVazas": 0}
+                         for i in range(NUM_SEATS)]
         self.apostaram = set()
         self.cartas_jogadas = set()
+        roll = self.rng.random()
+        if self.profile == "production":
+            round_start, hp = 3, 3
+        elif roll < .80:
+            round_start, hp = 3, 3
+        elif roll < .95:
+            round_start, hp = 2, 3
+        else:
+            round_start, hp = 3, 2
         self.partida = Partida(
-            number_players=NUM_SEATS, round_start=ROUND_START, random_shuffle=True,
-            hp_inicial=sortear_hp_inicial(),
+            number_players=NUM_SEATS, round_start=round_start, random_shuffle=True,
+            hp_inicial=hp,
             on_nova_rodada=self._on_nova_rodada,
             on_rodada_finalizada=self._on_rodada_finalizada,
             on_jogo_finalizado=self._on_jogo_finalizado,
@@ -161,12 +175,19 @@ class _Slot:
     def _on_rodada_finalizada(self, resultado):
         for r in resultado:
             self.pendente[r["jogador"].id] += -r["diferenca"]
+            m = self.metricas[r["jogador"].id]
+            m["rodadasJogadas"] += 1
+            m["apostasExatas"] += int(r["diferenca"] == 0)
+            m["erroAbsolutoTotal"] += r["diferenca"]
+            m["totalApostado"] += r["aposta"]
+            m["totalVazas"] += r["steak"]
 
     def _on_jogo_finalizado(self, vencedor):
         resumo = {
             "vencedor": vencedor.id,
             "rodadas": self.partida.numero_rodada,
             "hpFinal": [j.hp for j in self.partida.jogadores],
+            "metricasPorSeat": self.metricas,
         }
         for seat in range(NUM_SEATS):
             bonus = WIN_BONUS if seat == vencedor.id else LOSE_BONUS
@@ -220,8 +241,8 @@ class _Slot:
 class VecEnvNativo:
     # Mesma interface pública de VecEnvBridge (env_client.py) -- train.py
     # não precisa saber qual dos dois está usando.
-    def __init__(self, num_workers, **_ignorados):
-        self.slots = [_Slot(i) for i in range(num_workers)]
+    def __init__(self, num_workers, seed=None, profile="mixed", **_ignorados):
+        self.slots = [_Slot(i, seed=seed, profile=profile) for i in range(num_workers)]
 
     def get_batch(self):
         msgs = []
