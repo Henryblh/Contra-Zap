@@ -63,6 +63,43 @@ class RandomPolicy(Policy):
 SUPPORTED_OBS_DIMS = (66, 70, 106, 110)
 
 
+def project_flat_obs(obs, obs_dim):
+    """Projeta a observação canônica de 110 valores para modelos antigos.
+
+    O treino nativo já entrega um vetor achatado, enquanto o avaliador recebe
+    o dicionário do bridge JavaScript. Manter esta projeção ao lado de
+    ``flatten_for_obs_dim`` evita que os dois caminhos discordem sobre quais
+    campos pertencem a cada arquitetura.
+    """
+    if obs_dim not in SUPPORTED_OBS_DIMS:
+        raise PolicyError(
+            f"Checkpoint usa observação de {obs_dim} valores; suportados: {', '.join(map(str, SUPPORTED_OBS_DIMS))}."
+        )
+    values = list(obs)
+    if len(values) != 110:
+        raise PolicyError(f"Observação canônica tem {len(values)} valores; esperado 110.")
+
+    hand_and_table = values[:52]
+    players = values[52:68]
+    scalars = values[68:70]
+    memory = values[70:110]
+    without_flags = []
+    for index in range(0, 16, 4):
+        without_flags.extend(players[index:index + 3])
+
+    if obs_dim == 110:
+        projected = values
+    elif obs_dim == 70:
+        projected = values[:70]
+    elif obs_dim == 106:
+        projected = hand_and_table + without_flags + scalars + memory
+    else:  # 66
+        projected = hand_and_table + without_flags + scalars
+    if len(projected) != obs_dim:  # pragma: no cover - guarda de manutenção
+        raise PolicyError(f"Projeção produziu {len(projected)} valores; esperado {obs_dim}.")
+    return projected
+
+
 def flatten_for_obs_dim(obs, obs_dim):
     """Achatamento compatível com os quatro tamanhos de checkpoint em uso.
 
@@ -192,6 +229,26 @@ class CheckpointPolicy(Policy):
                 probabilities = torch.softmax(masked_logits, dim=0).cpu().tolist()
                 return rng.choices(range(len(probabilities)), weights=probabilities, k=1)[0]
             return int(torch.argmax(masked_logits).item())
+
+    def act_flat_batch(self, kind, observations, legal_masks):
+        """Argmax batelado para o treino contra políticas congeladas."""
+        if kind not in ("aposta", "carta"):
+            raise PolicyError(f"Tipo de decisão desconhecido: {kind!r}.")
+        if len(observations) != len(legal_masks):
+            raise PolicyError("Quantidade de observações e máscaras não corresponde.")
+        if not observations:
+            return []
+        projected = [project_flat_obs(obs, self.obs_dim) for obs in observations]
+        obs_tensor = torch.tensor(projected, dtype=torch.float32, device=self.device)
+        mask_tensor = torch.tensor(legal_masks, dtype=torch.bool, device=self.device)
+        with torch.inference_mode():
+            aposta_logits, carta_logits, _ = self.model(obs_tensor)
+            logits = aposta_logits if kind == "aposta" else carta_logits
+            if logits.shape != mask_tensor.shape:
+                raise PolicyError(
+                    f"Máscaras {tuple(mask_tensor.shape)} incompatíveis com logits {tuple(logits.shape)} de {kind}."
+                )
+            return torch.argmax(logits.masked_fill(~mask_tensor, float("-inf")), dim=1).tolist()
 
 
 @dataclass(frozen=True)

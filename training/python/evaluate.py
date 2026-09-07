@@ -11,6 +11,7 @@ import math
 import random
 import sys
 import time
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from collections import Counter, defaultdict
 from datetime import datetime
 from pathlib import Path
@@ -45,8 +46,13 @@ def parse_args(argv=None):
     lineup.add_argument("--players", nargs=NUM_SEATS, required=True, metavar="BOT", help="quatro descritores de bot")
     add_common_arguments(lineup)
 
+    suite = subparsers.add_parser("suite", help="executa uma matriz de confrontos descrita em JSON")
+    suite.add_argument("--manifest", required=True)
+    suite.add_argument("--jobs", type=int, default=1)
+    suite.add_argument("--output", required=True)
+
     args = parser.parse_args(argv)
-    if args.games <= 0:
+    if args.mode != "suite" and args.games <= 0:
         parser.error("--games deve ser maior que zero.")
     return args
 
@@ -279,6 +285,8 @@ def print_summary(report, output):
 
 def main(argv=None):
     args = parse_args(argv)
+    if args.mode == "suite":
+        return run_suite(args)
     try:
         tournament = Tournament(args)
         report = tournament.run()
@@ -295,6 +303,76 @@ def main(argv=None):
         json.dump(report, file, ensure_ascii=False, indent=2)
         file.write("\n")
     print_summary(report, output)
+    return 0
+
+
+def _suite_task(task):
+    """Executa um confronto 1x3, com seeds separados para baralhos comuns."""
+    reports = []
+    for seed in task["seeds"]:
+        ns = argparse.Namespace(mode="versus", candidate=task["candidate"], opponent=task["opponent"],
+                                games=task["games_per_seed"], seed=seed, sample_models=False,
+                                node_bin="node", output=None)
+        report = Tournament(ns).run()
+        reports.append(report)
+    wins = sum(r["roles"]["candidate"]["wins"] for r in reports)
+    appearances = sum(r["roles"]["candidate"]["appearances"] for r in reports)
+    error_sum = sum(r["roles"]["candidate"]["mean_absolute_bid_error"] * r["roles"]["candidate"]["rounds_played"] for r in reports)
+    rounds = sum(r["roles"]["candidate"]["rounds_played"] for r in reports)
+    return {"id": task["id"], "candidate": task["candidate_id"], "context": task["context"],
+            "wins": wins, "appearances": appearances, "win_rate": wins / appearances if appearances else 0,
+            "win_rate_ci95": wilson_interval(wins, appearances),
+            "mean_absolute_bid_error": error_sum / rounds if rounds else 0, "reports": reports}
+
+
+def run_suite(args):
+    manifest = json.loads(Path(args.manifest).read_text(encoding="utf-8-sig"))
+    candidates_by_id = {candidate["id"]: candidate for candidate in manifest["candidates"]}
+    tasks = []
+    for candidate in manifest["candidates"]:
+        for context in manifest.get("contexts", []):
+            opponent = context["opponent"]
+            if opponent == "$candidate":
+                opponent = candidate["spec"]
+            tasks.append({"id": f"{candidate['id']}:{context['id']}", "candidate_id": candidate["id"],
+                          "candidate": candidate["spec"], "opponent": opponent, "context": context["id"],
+                          "games_per_seed": int(context.get("games_per_seed", 250)),
+                          "seeds": context["seeds"]})
+    # Tarefas explícitas permitem ao PBT escolher um histórico diferente
+    # para cada candidato sem multiplicar todos os contextos pela população.
+    for explicit in manifest.get("tasks", []):
+        candidate_id = explicit["candidate"]
+        if candidate_id not in candidates_by_id:
+            raise ValueError(f"suite task referencia candidato desconhecido: {candidate_id!r}")
+        candidate = candidates_by_id[candidate_id]
+        tasks.append({
+            "id": explicit.get("id", f"{candidate_id}:{explicit['context']}"),
+            "candidate_id": candidate_id,
+            "candidate": candidate["spec"],
+            "opponent": explicit["opponent"],
+            "context": explicit["context"],
+            "games_per_seed": int(explicit.get("games_per_seed", 250)),
+            "seeds": explicit["seeds"],
+        })
+    results = []
+    with ThreadPoolExecutor(max_workers=max(1, args.jobs)) as pool:
+        futures = [pool.submit(_suite_task, task) for task in tasks]
+        for future in as_completed(futures):
+            results.append(future.result())
+    ranking = []
+    for candidate in manifest["candidates"]:
+        rows = [r for r in results if r["candidate"] == candidate["id"]]
+        wins, apps = sum(r["wins"] for r in rows), sum(r["appearances"] for r in rows)
+        ranking.append({"id": candidate["id"], "wins": wins, "appearances": apps,
+                        "win_rate": wins / apps if apps else 0,
+                        "lcb95": wilson_interval(wins, apps)[0],
+                        "worst_lcb95": min((r["win_rate_ci95"][0] for r in rows), default=0),
+                        "mean_absolute_bid_error": sum(r["mean_absolute_bid_error"] for r in rows) / len(rows) if rows else 0})
+    ranking.sort(key=lambda r: (-r["lcb95"], -r["worst_lcb95"], r["mean_absolute_bid_error"]))
+    output = {"schema_version": 1, "manifest": manifest, "results": results, "ranking": ranking}
+    Path(args.output).parent.mkdir(parents=True, exist_ok=True)
+    Path(args.output).write_text(json.dumps(output, ensure_ascii=False, indent=2), encoding="utf-8")
+    print(f"Suite concluída: {len(results)} contextos; líder={ranking[0]['id'] if ranking else 'nenhum'}")
     return 0
 
 
