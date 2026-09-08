@@ -1,4 +1,4 @@
-import { RodadaGame } from './Rodada.js';
+import { Rodada } from './Rodada.js';
 
 export class Game {
     constructor(settings) {
@@ -63,7 +63,7 @@ export class Game {
     }
 
     newRodada(){
-        var rodada = new RodadaGame(this);
+        var rodada = new Rodada(this);
         return rodada;
     }
 }

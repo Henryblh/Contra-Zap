@@ -1,8 +1,8 @@
-// Rodada.js (ou RodadaGame.js)
+// Rodada.js
 import { Baralho } from './Baralho.js';
 import { Mesa } from './Mesa.js';
 
-export class RodadaGame {
+export class Rodada {
     constructor(gameSettings) {
         // Puxamos as configurações diretamente da instância do Game que foi passada
         this.gameOrder = gameSettings.gameOrder;

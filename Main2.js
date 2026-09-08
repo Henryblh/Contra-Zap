@@ -96,6 +96,36 @@ async function menuSala(socket) {
     }
 }
 
+// Depois do login: pergunta ao servidor se já existe uma partida em andamento
+// com assento nosso (minhaSalaAtiva) e, se existir, oferece reconectar antes de
+// cair no menu de criar/entrar sala. Devolve { salaId, estado } (estado é o ack
+// de reconectar) ou null pra seguir o fluxo normal.
+async function tentarReconectar(socket) {
+    let salaAtiva;
+    try {
+        ({ salaId: salaAtiva } = await chamar(socket, 'minhaSalaAtiva'));
+    } catch {
+        return null;
+    }
+    if (!salaAtiva) return null;
+
+    const resposta = (await pergunta(`\nVocê tem uma partida em andamento na sala ${salaAtiva}. Reconectar? (s/n): `)).trim().toLowerCase();
+    if (resposta.startsWith('n')) return null;
+
+    try {
+        const estado = await chamar(socket, 'reconectar', { salaId: salaAtiva });
+        console.log(`\nReconectado na sala ${salaAtiva}.`);
+        console.log(`Sua mão: ${(estado.mao ?? []).map((c, i) => `${i + 1}) ${c}`).join('  ')}`);
+        if (estado.suaVezDaAposta) console.log('É a sua vez de apostar.');
+        else if (estado.suaVez) console.log('É a sua vez de jogar.');
+        else console.log(`Vez de: ${estado.jogadorDaVezAposta ?? estado.jogadorDaVez ?? '...'}`);
+        return { salaId: salaAtiva, estado };
+    } catch (erro) {
+        console.log(`\nNão deu pra reconectar: ${erro.message}`);
+        return null;
+    }
+}
+
 // Pergunta quantas vazas o jogador acha que vai fazer, manda apostar e tenta
 // de novo se o servidor recusar (fora da vez, valor inválido).
 async function escolherAposta(socket, salaId) {
@@ -135,9 +165,12 @@ async function escolherCarta(socket, salaId, minhaMao) {
 
 const socket = await conectar();
 const { nome: meuNome } = await fazerLogin(socket);
-const salaId = await menuSala(socket);
 
 let minhaMao = [];
+
+const reconexao = await tentarReconectar(socket);
+const salaId = reconexao ? reconexao.salaId : await menuSala(socket);
+if (reconexao) minhaMao = reconexao.estado.mao ?? [];
 
 socket.on('listaJogadores', (payload) => {
     if (payload.salaId !== salaId) return;
@@ -206,4 +239,11 @@ socket.on('chatMensagem', ({ jogador, texto }) => {
 });
 
 console.log(`\nAguardando na sala ${salaId}... (Ctrl+C para sair)`);
+
+// Se reconectamos no meio de um turno nosso, o servidor não reemite
+// turnoAposta/turnoJogador (já passaram) — dispara a ação aqui pelo estado
+// que reconectar devolveu.
+if (reconexao?.estado?.suaVezDaAposta) escolherAposta(socket, salaId);
+else if (reconexao?.estado?.suaVez) escolherCarta(socket, salaId, minhaMao);
+
 await new Promise(() => {});

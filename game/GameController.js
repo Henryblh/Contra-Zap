@@ -1,6 +1,6 @@
 // GameController.js
 // Dona da sala de espera (lista de jogadores antes da partida começar) e
-// orquestra a partida inteira (Game -> RodadaGame -> Mesa) quando ela
+// orquestra a partida inteira (Game -> Rodada -> Mesa) quando ela
 // começa, expondo o andamento como eventos em vez de console.log espalhado.
 //
 // Isso serve dois consumidores ao mesmo tempo, sem duplicar a lógica de regras:

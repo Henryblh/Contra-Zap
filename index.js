@@ -3,7 +3,7 @@
 // ao ligar o GameController nos sockets).
 export { GameController } from './game/GameController.js';
 export { Game } from './game/Game.js';
-export { RodadaGame } from './game/Rodada.js';
+export { Rodada } from './game/Rodada.js';
 export { Mesa } from './game/Mesa.js';
 export { Baralho } from './game/Baralho.js';
 export { Carta } from './game/Carta.js';
