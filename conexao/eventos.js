@@ -19,14 +19,14 @@ export const EventosCliente = {
     CRIAR_SALA: 'criarSala',    // { numberPlayers, roundStart, randomShuffle, botNumber, chatAberto } -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar, chatAberto } — botNumber preenche o resto dos assentos com bots (ver bots/Bot.js); segundosParaIniciar != null se os bots já lotaram a sala; chatAberto (default false) libera o chat de texto livre da sala
     ENTRAR_SALA: 'entrarSala',  // { salaId } -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar, chatAberto } — segundosParaIniciar != null se esta entrada lotou a sala
     PARTIDA_RAPIDA: 'partidaRapida', // {} -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar, chatAberto } — mesmo formato de criarSala/entrarSala; entra numa fila compartilhada de sala default (config igual criarSala sem parâmetros), criando-a se não houver nenhuma aberta no momento
-    LISTAR_SALAS: 'listarSalas', // {} -> ack: { ok, salas: [{ salaId, numberPlayers, jogadoresAtual }] }
+    LISTAR_SALAS: 'listarSalas', // {} -> ack: { ok, salas: [{ salaId, numberPlayers, jogadoresAtual, chatAberto }] }
     FORCAR_INICIO: 'forcarInicio', // { salaId } -> ack: { ok } — só o adm da sala, só com a sala cheia
     SAIR_SALA: 'sairSala',       // { salaId } -> ack: { ok } — só antes da partida começar
     SAIR_DA_PARTIDA: 'sairDaPartida', // { salaId } -> ack: { ok } — abandono voluntário de partida JÁ em andamento; o assento vira bot na hora (reaproveita o caminho da expulsão por inatividade)
     JOGAR_DE_NOVO: 'jogarDeNovo', // { salaId } -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar, chatAberto } — só o adm da sala TERMINADA (`salaId` é a sala antiga); cria uma sala nova com a mesma config e avisa quem mais estava lá (ver EventosServidor.CONVITE_REVANCHE)
     APOSTAR: 'apostar',          // { salaId, valor } -> ack: { ok } — valor é o número de vazas que o jogador acha que vai fazer
     JOGAR_CARTA: 'jogarCarta',   // { salaId, indice } -> ack: { ok } — indice é 0-based, posição na mão
-    RECONECTAR: 'reconectar',    // { salaId } -> ack: { ok, mao, suaVez, jogadorDaVez, chatAberto } — sala com partida já em andamento
+    RECONECTAR: 'reconectar',    // { salaId } -> ack: { ok, salaId, mao, cartasRodada, maosReveladas, suaVez, jogadorDaVez, suaVezDaAposta, jogadorDaVezAposta, chatAberto } — sala com partida já em andamento
     MINHA_SALA_ATIVA: 'minhaSalaAtiva', // {} -> ack: { ok, salaId: string | null } — existe uma partida em andamento em que eu ainda tenho assento? pra descobrir sem saber o salaId de antemão (ex.: depois de um refresh de página)
     CHAT: 'chat',                // { salaId, tipo: 'aberta' | 'restrita', texto?, id? } -> ack: { ok } — 'restrita' (id do catálogo, ver conexao/chat/mensagensChat.js) sempre liberada; 'aberta' (texto livre) só se a sala foi criada com chatAberto
 };
@@ -37,7 +37,7 @@ export const EventosCliente = {
 // GameController — todos broadcast de sala, exceto SUA_MAO, que é privado
 // (só o próprio jogador recebe, via sala pessoal `jogador:<id>`).
 export const EventosServidor = {
-    LISTA_JOGADORES: 'listaJogadores', // { salaId, jogadores: [{ nome }] }
+    LISTA_JOGADORES: 'listaJogadores', // { salaId, jogadores: [{ nome, adm }] }
     PARTIDA_INICIANDO_EM: 'partidaIniciandoEm', // { salaId, segundos }
     NOVA_RODADA_INICIADA: 'novaRodadaIniciada', // { salaId, numero, cartas }
     SUA_MAO: 'suaMao',                          // { salaId, mao: string[] } — PRIVADO

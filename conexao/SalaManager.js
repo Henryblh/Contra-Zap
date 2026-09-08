@@ -82,14 +82,14 @@ export class SalaManager {
     constructor({ tempoEsperaInicioMs = TEMPO_ESPERA_INICIO_MS_PADRAO, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs, tempoReservaMs, chatCooldownMs = CHAT_COOLDOWN_MS_PADRAO } = {}) {
         this.salas = new Map();
         this.tempoEsperaInicioMs = tempoEsperaInicioMs;
-        // undefined = deixa o GameController usar o próprio default (15s).
+        // undefined = deixa o GameController usar o próprio default (20s).
         // Só existe como opção aqui pra testes conseguirem injetar um valor
         // bem menor sem precisar mexer em GameController diretamente.
         this.tempoTurnoMs = tempoTurnoMs;
         // undefined = deixa o GameController usar o próprio default (90s).
         // Mesmo motivo do tempoTurnoMs acima.
         this.limiteInatividadeMs = limiteInatividadeMs;
-        // undefined = deixa o GameController usar o próprio default (1s).
+        // undefined = deixa o GameController usar o próprio default (2s).
         // Mesmo motivo do tempoTurnoMs acima.
         this.atrasoBotMs = atrasoBotMs;
         // undefined = deixa o GameController usar o próprio default (150s).

@@ -185,7 +185,8 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
 - ✅ Timeout de turno + expulsão por inatividade + reconexão de quem caiu.
 - ✅ Jogar de novo: sala nova com a mesma config, convite pra quem ficou.
 - ✅ Bots preenchem assento e assumem quem for expulso por inatividade —
-  falta só a inteligência de verdade (ver "o que falta fazer").
+  jogam com redes treinadas por RL em salas de 4 jogadores, com heurístico
+  burro como fallback nas outras (ver "o que falta fazer").
 - ✅ Vaga fica reservada por um tempo depois de virar bot; expirando sem
   reconectar, não pode mais ser reclamada e, se não sobrar ninguém real, a
   sala é descartada sozinha.
@@ -244,10 +245,11 @@ checkpoints completos e usa torneios no motor JavaScript para a seleção.
 Gaps estruturais de verdade — o motor/protocolo tem um buraco real, não é só
 polimento.
 
-- **Lógica de verdade dos bots** (`bots/BotBrain.js`) — hoje é só um
-  placeholder burro (sempre a última carta, sempre aposta 1). A estrutura já
-  tá pronta pra trocar isso sem mexer em mais nada; o plano é evoluir pra uma
-  estratégia melhor e, mais pra frente, treinar com ML.
+- **Bot forte em qualquer sala** (`bots/BotBrain.js`) — hoje o bot joga com
+  redes treinadas por RL (ver `training/`) só em salas de 4 jogadores; fora
+  disso, ou se os modelos não carregarem, cai num heurístico burro (última
+  carta, aposta 1). Falta uma estratégia que cubra as outras contagens de
+  jogador.
 - Subir o servidor num ambiente de verdade, com sockets web funcionando fora
   da rede local (hoje só foi testado em `localhost`).
 

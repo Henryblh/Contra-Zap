@@ -167,10 +167,10 @@ assim que a sala nasce, na ordem de entrada normal — se isso já lotar a
 sala, a partida é agendada na hora, igual qualquer `entrarSala` que lote.
 Bots não têm socket: não aparecem em `jogadorPorSocket`, nunca desconectam
 nem reconectam, e cada turno deles é decidido por `bots/BotBrain.js` e
-jogado depois de uma pausa de `atrasoBotMs` (1s por padrão), sem esperar
+jogado depois de uma pausa de `atrasoBotMs` (2s por padrão), sem esperar
 `tempoTurnoMs` (ver `PlayerGame.bot`).
 Pré-condição: socket já mandou `entrar` com sucesso.
-Ack sucesso: `{ ok: true, salaId, numberPlayers, jogadores: [{ nome }],
+Ack sucesso: `{ ok: true, salaId, numberPlayers, jogadores: [{ nome, adm }],
 segundosParaIniciar: number | null, chatAberto: boolean }`. O socket já dá `join` na sala;
 `jogadores` vem no próprio ack (o dono + os bots que `botNumber` já colocou)
 porque o broadcast de `listaJogadores` sai *dentro* deste handler, antes do
@@ -340,11 +340,10 @@ Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`, `SALA_NAO_INICIADA`
 `NAO_E_SUA_VEZ`, `CARTA_INVALIDA` (índice fora da mão).
 
 **Timeout do turno**: cada `turnoJogador` tem um prazo (`tempoTurnoMs` no
-`GameController`, 15s por padrão) pra `jogarCarta` chegar. Se estourar, o
-servidor joga sozinho por aquele jogador — mesma decisão simples usada pros
-bots de verdade (hoje sempre a última carta da mão; ver `bots/BotBrain.js`
-— trocar por uma escolha melhor, ou treinar com ML, é trabalho futuro) —
-liga a flag `desconectado` nele e emite `jogadaAutomatica` pra sala. Uma
+`GameController`, 20s por padrão) pra `jogarCarta` chegar. Se estourar, o
+servidor joga sozinho por aquele jogador — mesma decisão usada pros bots de
+verdade (ver `bots/BotBrain.js`) — liga a flag `desconectado` nele e emite
+`jogadaAutomatica` pra sala. Uma
 falta isolada é só isso: o próximo turno dele continua esperando
 `tempoTurnoMs` normalmente, do zero — pode ter sido só uma demora.
 `limiteInatividadeMs`/`jogadorExpulsoPorInatividade` (ver abaixo) não
@@ -353,7 +352,7 @@ existir bot. Só quando isso realmente acumula o suficiente pra estourar
 `limiteInatividadeMs` (várias faltas seguidas, não uma só) é que ele é
 considerado desconectado de verdade — expulsa o socket da sala **e** liga a
 flag `bot` (`PlayerGame.bot`): a partir daí esse assento para de esperar
-`tempoTurnoMs` e joga na hora, com uma pausa de `atrasoBotMs` (1s por
+`tempoTurnoMs` e joga na hora, com uma pausa de `atrasoBotMs` (2s por
 padrão, mesma pausa de um bot de verdade — ver `GameController`) só pra não
 resolver a vaza inteira instantaneamente. As flags só desligam quando ele
 manda `jogarCarta`/`apostar` de novo com sucesso, ou reconecta (ver
@@ -520,7 +519,7 @@ vão só pra `jogador:<id>` de cada destinatário (e cada um recebe um recorte
 diferente, no caso de `maosReveladas`).
 
 ### `listaJogadores`
-`{ salaId, jogadores: [{ nome }] }` — toda vez que a lista de espera muda.
+`{ salaId, jogadores: [{ nome, adm }] }` — toda vez que a lista de espera muda.
 
 ### `partidaIniciandoEm`
 `{ salaId, segundos }` — disparado assim que a sala lota. `segundos` é a
@@ -647,12 +646,14 @@ igual na sala de espera e na partida.
 
 ## O que fica fora deste marco (decisão adiada, não esquecida)
 
-- Bot de verdade. `escolherCartaAutomatica` (`game/GameController.js`) hoje
-  só devolve a última carta da mão — dá pra validar o mecanismo de
-  timeout/flag ponta a ponta, mas não é uma escolha estratégica nenhuma.
-  Trocar por algo que jogue com alguma lógica é trabalho futuro; hoje, depois
-  da expulsão por inatividade, é exatamente essa mesma jogada boba que
-  continua acontecendo a cada turno até alguém voltar via `reconectar`.
+- Bot forte em qualquer configuração de sala. Hoje `bots/BotBrain.js`
+  (`escolherCarta`/`escolherAposta`) joga com redes treinadas por RL (ver
+  `training/`) só em salas de 4 jogadores; fora disso, ou se os modelos não
+  carregarem, cai num heurístico burro ("última carta", "aposta 1"). É essa
+  mesma decisão (rede ou heurístico) que roda pelo assento no automático a
+  cada turno depois da expulsão por inatividade, até alguém voltar via
+  `reconectar`. Uma estratégia que cubra as outras contagens de jogador
+  continua sendo trabalho futuro.
 - Reconectar durante a **sala de espera** (antes da partida começar) não
   existe como conceito separado — hoje uma desconexão nessa fase tira o
   jogador da sala (`sairSala`), então "reconectar" ali é só logar de novo e
