@@ -273,11 +273,12 @@ não parece compensar o ganho agora.
 Levantamento feito varrendo `Server.js`, `game/`, `conexao/`, `bots/` e a
 infra (Docker/CI). A numeração é fixa (serve de referência entre a gente) —
 itens concluídos foram removidos. **Bloco 9 fechado.** Feitos: 57–60
-(doc/valores sincronizados com o código), 63 (`public/_intro` mantido de
-propósito), 64 (`.gitignore` consertado, build fora do git), 65 (`RodadaGame`
-→ `Rodada`), 66 (`Main.js` não trava mais na aposta), 67 (`Main2.js` com
-`reconectar` no login + comando `sair` a qualquer momento na partida). Do
-bloco 8 restam só 61 e 62.
+(doc/valores sincronizados com o código), 62 (catálogo de chat + cooldown têm
+fonte única em `conexao/chat/mensagensChat.js`; o espelho do front foi
+deletado), 63 (`public/_intro` mantido de propósito), 64 (`.gitignore`
+consertado, build fora do git), 65 (`RodadaGame` → `Rodada`), 66 (`Main.js`
+não trava mais na aposta), 67 (`Main2.js` com `reconectar` no login + comando
+`sair` a qualquer momento na partida). Do bloco 8 resta só o 61.
 
 Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
 
@@ -353,7 +354,3 @@ Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
 
 ### 8. Documentação vs código
 61. 🟡 README seção Docker: o passo `touch banco.sqlite jwt.secret` ficou sem efeito (volumes do compose comentados). Depende de decidir sobre os volumes (item 49). `README.md`
-62. 🟢 Catálogo de chat + `CHAT_COOLDOWN_MS` duplicados à mão em `conexao/chat/mensagensChat.js` e `public/app/src/chatMensagens.js`. É refactor (fonte compartilhada).
-
-### 9. Limpeza / órfãos
-_Bloco fechado — 63–67 concluídos._

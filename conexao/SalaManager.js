@@ -9,6 +9,7 @@ import { GameController } from '../game/GameController.js';
 import { Bot } from '../bots/Bot.js';
 import { CodigosErro } from './eventos.js';
 import { montarMensagemChat, ErroChat } from './chat/chat.js';
+import { CHAT_COOLDOWN_MS } from './chat/mensagensChat.js';
 
 export class ErroSala extends Error {
     constructor(codigo, mensagem) {
@@ -21,7 +22,6 @@ export class ErroSala extends Error {
 const NUMERO_JOGADORES_MIN = 2;
 const NUMERO_JOGADORES_MAX = 6;
 const TEMPO_ESPERA_INICIO_MS_PADRAO = 15_000;
-const CHAT_COOLDOWN_MS_PADRAO = 3_000;
 
 function validarConfig({ numberPlayers, roundStart, botNumber, chatAberto }) {
     if (!Number.isInteger(numberPlayers) || numberPlayers < NUMERO_JOGADORES_MIN || numberPlayers > NUMERO_JOGADORES_MAX) {
@@ -79,7 +79,7 @@ class Sala {
 }
 
 export class SalaManager {
-    constructor({ tempoEsperaInicioMs = TEMPO_ESPERA_INICIO_MS_PADRAO, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs, tempoReservaMs, chatCooldownMs = CHAT_COOLDOWN_MS_PADRAO } = {}) {
+    constructor({ tempoEsperaInicioMs = TEMPO_ESPERA_INICIO_MS_PADRAO, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs, tempoReservaMs, chatCooldownMs = CHAT_COOLDOWN_MS } = {}) {
         this.salas = new Map();
         this.tempoEsperaInicioMs = tempoEsperaInicioMs;
         // undefined = deixa o GameController usar o próprio default (20s).

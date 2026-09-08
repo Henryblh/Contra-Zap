@@ -501,9 +501,11 @@ tentativa antes do prazo devolve `CHAT_EM_COOLDOWN` sem mandar
 `chatMensagem` nenhum. Só uma mensagem que passou em todas as outras
 validações conta pro relógio — uma tentativa rejeitada por
 `CHAT_INVALIDO`/`CHAT_DESABILITADO` não consome nem estica o prazo de quem
-já estava dentro dele. `CHAT_COOLDOWN_MS` no front (`chatMensagens.js`) é
-só cosmético (desabilita os botões na hora); quem decide de verdade é o
-servidor — os dois valores precisam ficar sincronizados manualmente.
+já estava dentro dele. `CHAT_COOLDOWN_MS` no front é só cosmético (desabilita
+os botões na hora); quem decide de verdade é o servidor. O front importa essa
+constante — e o catálogo de mensagens prontas — direto de
+`conexao/chat/mensagensChat.js` (fonte única), então não há sincronização
+manual entre os dois lados.
 
 Ack sucesso: `{ ok: true }`. O servidor então faz `chatMensagem` pra sala
 inteira, **incluindo quem enviou** (o cliente não renderiza otimista — espera
