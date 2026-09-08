@@ -272,10 +272,12 @@ não parece compensar o ganho agora.
 
 Levantamento feito varrendo `Server.js`, `game/`, `conexao/`, `bots/` e a
 infra (Docker/CI). A numeração é fixa (serve de referência entre a gente) —
-itens concluídos foram removidos. **Já feitos:** 57–60 (doc/valores
-sincronizados com o código), 63 (`public/_intro` mantido de propósito),
-64 (`.gitignore` consertado, build fora do git), 65 (`RodadaGame` → `Rodada`),
-66 (`Main.js` não trava mais na aposta), 67 (parcial).
+itens concluídos foram removidos. **Bloco 9 fechado.** Feitos: 57–60
+(doc/valores sincronizados com o código), 63 (`public/_intro` mantido de
+propósito), 64 (`.gitignore` consertado, build fora do git), 65 (`RodadaGame`
+→ `Rodada`), 66 (`Main.js` não trava mais na aposta), 67 (`Main2.js` com
+`reconectar` no login + comando `sair` a qualquer momento na partida). Do
+bloco 8 restam só 61 e 62.
 
 Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
 
@@ -354,4 +356,4 @@ Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
 62. 🟢 Catálogo de chat + `CHAT_COOLDOWN_MS` duplicados à mão em `conexao/chat/mensagensChat.js` e `public/app/src/chatMensagens.js`. É refactor (fonte compartilhada).
 
 ### 9. Limpeza / órfãos
-67. 🟢 `Main2.js` já ganhou reconexão via CLI; falta só expor `sairDaPartida` no menu (precisa de um loop de comando durante a partida).
+_Bloco fechado — 63–67 concluídos._

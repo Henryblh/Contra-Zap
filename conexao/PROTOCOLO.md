@@ -664,7 +664,8 @@ igual na sala de espera e na partida.
   na hora (reaproveitando o caminho da expulsão por inatividade): a partida
   segue com o mesmo número de assentos, a vaga continua reservada pra
   `reconectar`, e ninguém "ganha no grito" por alguém ter saído.
-- Reconexão via `Main2.js`: o harness de CLI não guarda o token entre
-  execuções nem oferece a opção "reconectar" no menu — pra testar o fluxo
-  de reconexão hoje é preciso emitir o evento manualmente (ou usar os
-  testes automatizados, que já cobrem o caminho ponta a ponta).
+- Persistência de sessão no `Main2.js`: o harness de CLI não guarda o token
+  entre execuções — a cada `node Main2.js` é preciso logar de novo. Ele já
+  oferece `reconectar` logo após o login (checa `minhaSalaAtiva`) e tem um
+  comando `sair` durante a partida (`sairSala`/`sairDaPartida`); o que falta
+  é só não pedir nome/senha toda vez.
