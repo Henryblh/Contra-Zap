@@ -465,6 +465,18 @@ function ligarControllerASala(io, salaManager, sala, socketPorJogador, salaPorSo
         encerrarSeFinalizadaEVazia(io, salaManager, salaId);
     });
 
+    // jogadorEntrou/jogadorSaiu (sala de espera) não têm evento próprio no
+    // protocolo — a lista de jogadores já vai por listaJogadores. Aqui eles
+    // viram uma linha de sistema no chat da sala ("Fulano entrou na sala"),
+    // pra dar um feedback visível de quem chega e sai antes da partida
+    // começar. tipo 'sistema' passa direto, sem cooldown nem chatAberto (não
+    // é mensagem de jogador — ver montarMensagemChat).
+    const avisoSistema = (nome, texto) => {
+        io.to(salaId).emit(EventosServidor.CHAT_MENSAGEM, { salaId, tipo: 'sistema', jogador: nome, id: null, texto });
+    };
+    controller.on('jogadorEntrou', ({ nome }) => avisoSistema(nome, 'entrou na sala'));
+    controller.on('jogadorSaiu', ({ nome }) => avisoSistema(nome, 'saiu da sala'));
+
     controller.on('cartasDistribuidas', (maos) => {
         for (const { id, mao } of maos) {
             io.to(`jogador:${id}`).emit(EventosServidor.SUA_MAO, { salaId, mao });

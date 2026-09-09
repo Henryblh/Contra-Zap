@@ -614,17 +614,23 @@ socket não vai no fio, só controla o filtro por destinatário.
 
 ### `chatMensagem`
 
-`{ salaId, jogador: string, tipo: 'aberta' | 'restrita', id: number | null, texto: string }`
-— resposta do servidor a um evento `chat` (ver seção própria acima).
-Broadcast pra sala inteira, **incluindo quem enviou**. Não passa pelo
-`GameController` (chat é da camada de conexão, não do jogo), então chega
-igual na sala de espera e na partida.
+`{ salaId, jogador: string, tipo: 'aberta' | 'restrita' | 'sistema', id: number | null, texto: string }`
+— resposta do servidor a um evento `chat` (ver seção própria acima), **ou**
+um aviso de sistema gerado pelo próprio servidor. Broadcast pra sala inteira,
+**incluindo quem enviou**. Não passa pelo `GameController` (chat é da camada
+de conexão, não do jogo), então chega igual na sala de espera e na partida.
 
 - `tipo: 'restrita'`: `id` é o do catálogo e `texto` é o texto resolvido
   dele — o cliente pode usar qualquer um dos dois (renderizar por `id` como
   um "chip", ou só mostrar `texto`).
 - `tipo: 'aberta'`: `id` é `null` e `texto` é o que o jogador digitou, já
   com `trim` e limitado a 200 caracteres pelo servidor.
+- `tipo: 'sistema'`: aviso do servidor, não veio de nenhum `chat`. Hoje só
+  entrada/saída de jogador na sala de espera — `jogador` é o nome de quem
+  entrou/saiu, `texto` é `"entrou na sala"` ou `"saiu da sala"`, `id` é
+  `null`. Não respeita cooldown nem `chatAberto`. O cliente renderiza sem
+  tratar como fala de ninguém (ex.: linha centralizada "Fulano entrou na
+  sala").
 
 ## Códigos de erro (`CodigosErro`)
 

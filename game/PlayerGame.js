@@ -34,10 +34,6 @@ export class PlayerGame extends Player {
         this.mao.push(carta);
     }
 
-    jogarCarta(carta) {
-        return carta;
-    }
-
 
     get aposta() {return this._aposta;}
 

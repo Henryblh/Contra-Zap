@@ -52,6 +52,8 @@ __pycache__/
 /game/loopPartida.test.js
 /game/seed.test.js
 /game/playerGame.test.js
+/game/fimDeJogo.test.js
 /training/python/test_motor_maxdeck.py
 /training/python/test_motor_loop.py
 /training/python/test_seed.py
+/training/python/test_fim_de_jogo.py

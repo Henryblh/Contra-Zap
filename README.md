@@ -265,13 +265,6 @@ Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
 12. 🟡 Contador de `idEfemero.js` reinicia em -1 a cada restart, mas token de convidado vale 6h → risco de colisão de id. `idEfemero.js`
 13. 🟡 Sem HTTPS/wss (item de "produção").
 
-### 2. Motor de jogo (`game/`)
-18. 🟢 Desempate `vivos.length === 0` por menor `|aposta-steak|`; empate nisso → primeiro de `gameOrder`, arbitrário. `GameController.js`
-23. 🟢 `PlayerGame.jogarCarta(carta){ return carta; }` — método morto. `PlayerGame.js`
-24. 🟢 `Carta.js`: comentários "Faltava o return!" sobrando + getter/setter redundante por campo.
-25. 🟢 `GameController` emite `jogadorEntrou`/`jogadorSaiu` que ninguém retransmite. `GameController.js`
-26. 🟢 `hp` pode ficar bem negativo (sem piso em 0). `Rodada.js`
-
 ### 3. Reconexão / estado de partida
 27. 🔴 `estadoDeReconexao` não devolve mesa da vaza atual, vira/manilha, apostas dos outros, hp/steak, eliminados, nº da rodada, placar. `GameController.js`
 28. 🔴 `Partida.jsx` `ressincronizar` tem os mesmos buracos (não repovoa `mesa`, `vira`, `apostas`, `eliminados`). `Partida.jsx`

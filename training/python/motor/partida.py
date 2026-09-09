@@ -122,8 +122,11 @@ class Partida:
             ])
 
     # Fim de jogo? Devolve True (e seta finalizada/vencedor) quando só sobra um
-    # vivo -- ou nenhum, aí o desempate é a menor |aposta - steak| na última
-    # rodada. Devolve False quando a partida continua.
+    # vivo (hp > 0). Se TODOS morrerem na mesma rodada, vence quem ficou com o
+    # hp mais perto de 0 (perdeu menos vida). Empate nesse hp: vence quem
+    # chegou nele primeiro = quem finalizar_rodada processou antes (ordem de
+    # rodada.game_order). Provisório, igual ao game/GameController.js. Devolve
+    # False quando a partida continua.
     def _resolver_fim_de_jogo(self):
         vivos = [j for j in self.jogo.game_order if j.hp > 0]
         if len(vivos) == 1:
@@ -133,7 +136,9 @@ class Partida:
                 self._on_jogo_finalizado(self.vencedor)
             return True
         if len(vivos) == 0:
-            self.vencedor = min(self.rodada.game_order, key=lambda j: abs(j.aposta - j.steak))
+            # max() devolve o primeiro que atinge o maior hp -> empate fica com
+            # quem vem antes em game_order (mesma ordem de finalizar_rodada).
+            self.vencedor = max(self.rodada.game_order, key=lambda j: j.hp)
             self.finalizada = True
             if self._on_jogo_finalizado:
                 self._on_jogo_finalizado(self.vencedor)

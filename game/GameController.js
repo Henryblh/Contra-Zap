@@ -128,6 +128,7 @@ export class GameController extends EventEmitter {
         if (indice === -1) return false;
 
         const eraAdm = this.jogadores[indice].adm;
+        const nome = this.jogadores[indice].nome;
         this.jogadores.splice(indice, 1);
         if (eraAdm && this.jogadores.length > 0) {
             this.jogadores[0].adm = true;
@@ -139,7 +140,7 @@ export class GameController extends EventEmitter {
             this._segundosParaIniciar = null;
         }
 
-        this.emit('jogadorSaiu', { id: playerId });
+        this.emit('jogadorSaiu', { id: playerId, nome });
         return true;
     }
 
@@ -730,9 +731,12 @@ export class GameController extends EventEmitter {
     }
 
     // Fim de jogo? Devolve true (e emite jogoFinalizado) quando só sobra um
-    // vivo — ou nenhum, se todos zeraram o hp na mesma rodada, caso em que o
-    // desempate é a menor diferença |aposta - steak| na última rodada. Devolve
-    // false quando a partida continua.
+    // vivo (hp > 0). Se TODOS morrerem na mesma rodada (vivos === 0), vence
+    // quem ficou com o hp mais perto de 0 — perdeu menos vida, errou menos.
+    // Empate nesse hp (ex.: dois em -1): vence quem chegou nele primeiro, que
+    // é quem finalizarRodada processou antes — a ordem de rodada.gameOrder.
+    // Critério provisório ("por enquanto", ver README): o definitivo o time
+    // ainda vai decidir. Devolve false quando a partida continua.
     _resolverFimDeJogo() {
         const vivos = this.game.gameOrder.filter(j => j.hp > 0);
         if (vivos.length === 1) {
@@ -741,12 +745,14 @@ export class GameController extends EventEmitter {
             return true;
         }
         if (vivos.length === 0) {
-            const vencedor = this.rodada.gameOrder.reduce((melhor, jogador) => {
-                const diferenca = Math.abs(jogador.aposta - jogador.steak);
-                return diferenca < melhor.diferenca ? { jogador, diferenca } : melhor;
-            }, { jogador: this.rodada.gameOrder[0], diferenca: Math.abs(this.rodada.gameOrder[0].aposta - this.rodada.gameOrder[0].steak) });
+            // rodada.gameOrder já está na ordem em que finalizarRodada aplicou
+            // a perda de hp; o `>` estrito mantém o primeiro em caso de empate.
+            let vencedor = this.rodada.gameOrder[0];
+            for (const jogador of this.rodada.gameOrder) {
+                if (jogador.hp > vencedor.hp) vencedor = jogador;
+            }
             this._finalizada = true;
-            this.emit('jogoFinalizado', { vencedor: vencedor.jogador.nome });
+            this.emit('jogoFinalizado', { vencedor: vencedor.nome });
             return true;
         }
         return false;
