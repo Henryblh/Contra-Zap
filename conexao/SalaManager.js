@@ -34,6 +34,11 @@ const ROUND_START_MAX = 10;
 const MAX_DECK_MIN = 1;
 const MAX_DECK_SEM_LIMITE = 50;
 const TEMPO_ESPERA_INICIO_MS_PADRAO = 15_000;
+// Teto global de salas vivas ao mesmo tempo. É uma barreira de sanidade
+// contra criação em massa (memória, e o do..while de _gerarSalaId começando a
+// colidir com o espaço de ids cheio), não um número que uma operação normal
+// deva chegar perto. Passou disso, criarSala devolve LIMITE_DE_SALAS.
+const MAX_SALAS = 1000;
 
 // Quantos baralhos uma rodada com `numberPlayers` e mão de `round` cartas
 // precisa — mesma conta de game/Game.js (numCards = jogadores*round + 1).
@@ -171,6 +176,12 @@ export class SalaManager {
     // sem isso esse primeiro evento se perderia (mesmo motivo do roster vir
     // no próprio ack de criarSala — ver conexao/socketServer.js).
     criarSala(player, config = {}, aoNascer) {
+        if (this.salas.size >= MAX_SALAS) {
+            throw new ErroSala(
+                CodigosErro.LIMITE_DE_SALAS,
+                `Limite de ${MAX_SALAS} salas simultâneas atingido — tente de novo daqui a pouco.`
+            );
+        }
         const numberPlayers = config.numberPlayers ?? 4;
         const roundStart = config.roundStart ?? 3;
         const botNumber = config.botNumber ?? 0;
@@ -462,7 +473,22 @@ export class SalaManager {
 
         const conteudo = montarMensagemChat({ chatAberto: sala.chatAberto, tipo, id, texto });
         this._ultimoChatPorJogador.set(player.id, agora);
+        this._podarCooldownChat(agora);
         return conteudo;
+    }
+
+    // Tira do Map as marcas de chat que já passaram do cooldown: uma entrada
+    // mais velha que chatCooldownMs nunca mais barra ninguém (a checagem lá em
+    // cima só olha `agora - ultimoEnvio < chatCooldownMs`), então guardá-la só
+    // vaza memória. Sem isto o Map cresce uma entrada por jogador que já
+    // mandou chat alguma vez e nunca encolhe. Roda a cada envio aceito — custo
+    // O(n) diluído pelo próprio cooldown de 3s por jogador.
+    _podarCooldownChat(agora) {
+        for (const [playerId, ts] of this._ultimoChatPorJogador) {
+            if (agora - ts >= this.chatCooldownMs) {
+                this._ultimoChatPorJogador.delete(playerId);
+            }
+        }
     }
 
     obterSala(salaId) {
@@ -476,7 +502,16 @@ export class SalaManager {
     // encerrarSeFinalizadaEVazia). Idempotente: chamar de novo, ou com um
     // salaId que já não existe, não faz nada.
     removerSala(salaId) {
+        const sala = this.salas.get(salaId);
+        if (!sala) return;
         this.salas.delete(salaId);
+        // Teardown do controller: para o loop da partida se ainda estiver no
+        // ar, solta os listeners de socket e cancela os timers de reserva —
+        // sem isto a sala some do Map mas o GameController continua vivo em
+        // segundo plano (ver GameController.destruir). salaFilaRapidaId, se
+        // apontar pra esta, continua sendo tratado como "ref velha" por
+        // partidaRapida, que já confere se ainda está aberta antes de reusar.
+        sala.controller.destruir();
     }
 
     // Salas que ainda aceitam gente: não iniciadas e não cheias. Resumo

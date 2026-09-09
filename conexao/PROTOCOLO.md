@@ -187,7 +187,7 @@ inicial, só nos que vêm depois. `segundosParaIniciar` é `null` na maioria
 dos casos, mas vem preenchido quando `botNumber` já lotou a sala: aí o
 `agendarInicio` (e o broadcast de `partidaIniciandoEm`) dispara dentro deste
 handler, antes do ack — mesmo motivo de `jogadores` vir aqui.
-Erros possíveis: `NAO_IDENTIFICADO`, `CONFIGURACAO_INVALIDA`.
+Erros possíveis: `NAO_IDENTIFICADO`, `CONFIGURACAO_INVALIDA`, `LIMITE_DE_SALAS`.
 
 ### `partidaRapida`
 Payload: `{}`
@@ -635,6 +635,7 @@ igual na sala de espera e na partida.
 | `TOKEN_INVALIDO` | `retomarSessao` com token que não bate a assinatura, expirou, ou veio ausente/malformado |
 | `NOME_INVALIDO` | `entrarSala` com nome já em uso *nessa sala* |
 | `CONFIGURACAO_INVALIDA` | `criarSala` com `numberPlayers`/`roundStart`/`maxDeck`/`botNumber` fora do intervalo aceito (`roundStart` 1 a 10, `maxDeck` 1 a 50), `roundStart` que não cabe em `maxDeck` baralhos com a mesa cheia, ou `chatAberto`/`randomShuffle` que não é boolean |
+| `LIMITE_DE_SALAS` | `criarSala`/`partidaRapida` com o teto global de salas simultâneas já atingido — barreira de sanidade, tenta de novo mais tarde |
 | `SALA_NAO_ENCONTRADA` | `entrarSala`/`forcarInicio`/`sairSala`/`jogarCarta`/`reconectar` com `salaId` que não existe |
 | `SALA_CHEIA` | `entrarSala` numa sala que já tem `numberPlayers` jogadores |
 | `SALA_NAO_CHEIA` | `forcarInicio` antes da sala lotar |

@@ -65,6 +65,7 @@ export const CodigosErro = {
     NAO_IDENTIFICADO: 'NAO_IDENTIFICADO',   // tentou criar/entrar/listar sala sem mandar ENTRAR antes
     NOME_INVALIDO: 'NOME_INVALIDO',         // nome já em uso na mesma sala
     CONFIGURACAO_INVALIDA: 'CONFIGURACAO_INVALIDA', // numberPlayers/roundStart fora do intervalo aceito
+    LIMITE_DE_SALAS: 'LIMITE_DE_SALAS',     // criarSala com o teto global de salas vivas já atingido — tenta de novo mais tarde
     SALA_NAO_ENCONTRADA: 'SALA_NAO_ENCONTRADA',
     SALA_CHEIA: 'SALA_CHEIA',
     SALA_NAO_CHEIA: 'SALA_NAO_CHEIA',       // forcarInicio antes da sala lotar

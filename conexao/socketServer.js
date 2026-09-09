@@ -318,7 +318,20 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
             jogadorPorSocket.delete(socket.id);
             salaPorSocket.delete(socket.id);
             if (player && socketPorJogador.get(player.id) === socket.id) {
-                socketPorJogador.delete(player.id);
+                // Este era o socket "atual" desse jogador. Em cenário multi-aba
+                // pode ter sobrado outra conexão autenticada dele — reaponta
+                // socketPorJogador pra ela em vez de deixar a entrada sumir e
+                // o jogador ficar sem socket endereçável (ex.:
+                // jogadorExpulsoPorInatividade não acharia a aba ainda aberta).
+                let substituto = null;
+                for (const [outroSocketId, outroPlayer] of jogadorPorSocket) {
+                    if (outroPlayer.id === player.id) { substituto = outroSocketId; break; }
+                }
+                if (substituto) {
+                    socketPorJogador.set(player.id, substituto);
+                } else {
+                    socketPorJogador.delete(player.id);
+                }
             }
 
             // Best-effort: sem cliente do outro lado pra responder erro

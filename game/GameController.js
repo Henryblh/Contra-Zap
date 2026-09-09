@@ -69,6 +69,11 @@ export class GameController extends EventEmitter {
         // partida), é o que permite distinguir "partida em andamento" de
         // "partida acabou" de fora (ver SalaManager.jogarDeNovo).
         this._finalizada = false;
+        // true depois de destruir() — a sala saiu do sistema e este controller
+        // não deve mais rodar nada. O loop da partida checa isso nos pontos de
+        // re-entrada pra desenrolar em vez de seguir emitindo pra uma sala que
+        // não existe mais.
+        this._encerrado = false;
         // playerId -> timer do contador de reserva (ver _iniciarContadorReserva).
         this._timersReserva = new Map();
     }
@@ -200,6 +205,17 @@ export class GameController extends EventEmitter {
     _abortarPartida(erro) {
         console.error('Partida abortada por erro interno:', erro);
 
+        this._limparTimers();
+
+        // Mesmo efeito de jogoFinalizado pra quem olha de fora (SalaManager,
+        // "jogar de novo"): a partida não está mais "em andamento".
+        this._finalizada = true;
+        this.emit('partidaAbortada', { motivo: 'erro_interno', erro: erro?.message ?? String(erro) });
+    }
+
+    // Cancela todo timer que este controller possa ter em aberto: o de início
+    // de partida e todos os contadores de reserva de vaga. Idempotente.
+    _limparTimers() {
         if (this._timerInicio) {
             clearTimeout(this._timerInicio);
             this._timerInicio = null;
@@ -209,11 +225,28 @@ export class GameController extends EventEmitter {
             clearTimeout(timer);
         }
         this._timersReserva.clear();
+    }
 
-        // Mesmo efeito de jogoFinalizado pra quem olha de fora (SalaManager,
-        // "jogar de novo"): a partida não está mais "em andamento".
-        this._finalizada = true;
-        this.emit('partidaAbortada', { motivo: 'erro_interno', erro: erro?.message ?? String(erro) });
+    // Teardown: chamado por SalaManager.removerSala quando a sala sai do
+    // sistema. Sem isto, um controller de sala já removida seguiria com o loop
+    // da partida rodando, os listeners de socket presos (memória) e os timers
+    // de reserva disparando `_expirarVaga` num objeto solto. Depois daqui o
+    // controller não emite mais nada e o loop, se estiver no ar, desenrola no
+    // próximo ponto de re-entrada (ver o guard de _encerrado em
+    // _jogarRodadaAtual/_avancarOuFinalizar).
+    destruir() {
+        this._encerrado = true;
+        this._limparTimers();
+
+        // Desbloqueia o loop se ele estiver parado num await esperando jogada
+        // ou aposta real — resolve com null; o guard de _encerrado logo depois
+        // do await faz o loop retornar sem tocar nesse valor.
+        this._jogadaEsperada?.resolver(null);
+        this._apostaEsperada?.resolver(null);
+        this._jogadaEsperada = null;
+        this._apostaEsperada = null;
+
+        this.removeAllListeners();
     }
 
     // Devolve uma Promise que só resolve quando jogarCarta(jogador.id, ...)
@@ -604,6 +637,7 @@ export class GameController extends EventEmitter {
     }
 
     async _jogarRodadaAtual() {
+        if (this._encerrado) return; // sala removida no meio da partida (ver destruir)
         const rodada = this.rodada;
 
         rodada.darCartas();
@@ -633,6 +667,7 @@ export class GameController extends EventEmitter {
         // paralelizar isso: cada apostaFeita só sai depois da anterior.
         for (const jogador of rodada.gameOrder) {
             await this._aguardarApostaOuTimeout(jogador);
+            if (this._encerrado) return;
         }
 
         for (let v = 0; v < rodada.round; v++) {
@@ -641,6 +676,7 @@ export class GameController extends EventEmitter {
             const ordem = rodada.ordemDaVaza();
             for (const jogador of ordem) {
                 const indice = await this._aguardarJogadaOuTimeout(jogador);
+                if (this._encerrado) return;
 
                 const carta = jogador.mao.splice(indice, 1)[0];
                 this._cartasJogadasRodada.add(carta.valorInt * 4 + carta.naipeInt);
@@ -673,6 +709,7 @@ export class GameController extends EventEmitter {
     }
 
     async _avancarOuFinalizar() {
+        if (this._encerrado) return; // sala removida no meio da partida (ver destruir)
         const vivos = this.game.gameOrder.filter(j => j.hp > 0);
         if (vivos.length === 1) {
             this._finalizada = true;
