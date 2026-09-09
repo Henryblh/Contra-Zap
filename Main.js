@@ -1,7 +1,7 @@
 // Main.js
 // Harness de teste local: cria jogadores, assina os eventos do GameController
 // e imprime o andamento da partida no console. A lógica de regras vive inteira
-// no GameController/Game/RodadaGame/Mesa — este arquivo só observa e exibe.
+// no GameController/Game/Rodada/Mesa — este arquivo só observa e exibe.
 import { Player } from './game/Player.js';
 import { GameController } from './game/GameController.js';
 
@@ -36,9 +36,11 @@ controller.on('apostaFeita', ({ jogador, aposta }) => {
 controller.on('turnoAposta', ({ id, jogador }) => {
     console.log(`jogador ${jogador}: Aposte quantas vazas acha que vai fazer`);
 
-    // Harness de console: sempre aposta 1, mesmo comportamento de antes de
-    // o GameController esperar aposta real.
-    controller.apostar(id, 1);
+    // Harness de console: tenta apostar 1; se o GameController recusar
+    // (último a apostar e 1 fecharia a soma no nº de cartas — APOSTA_FECHA_RODADA),
+    // cai pra 0, que é sempre válido nesse caso. Sem esse fallback a Promise
+    // de _aguardarApostaOuTimeout nunca resolveria e a partida travava.
+    if (!controller.apostar(id, 1).ok) controller.apostar(id, 0);
 });
 
 controller.on('turnoJogador', ({ id, jogador }) => {

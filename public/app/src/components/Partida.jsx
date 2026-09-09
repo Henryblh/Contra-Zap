@@ -2,7 +2,9 @@ import { useEffect, useRef, useState } from 'react';
 import { createPortal } from 'react-dom';
 import { socket, chamar } from '../socket.js';
 import { assinarSessaoRetomada } from '../sessao.js';
-import { MENSAGENS_PRONTAS, CHAT_COOLDOWN_MS } from '../chatMensagens.js';
+// Catálogo e cooldown vêm direto da fonte única do back — não há mais espelho
+// no front (ver server.fs.allow em vite.config.js).
+import { MENSAGENS_CHAT, CHAT_COOLDOWN_MS } from '../../../../conexao/chat/mensagensChat.js';
 
 // Tela 3: uma sala inteira, da espera até o fim da partida. É um componente
 // só (não um por fase) porque é uma assinatura contínua dos mesmos eventos
@@ -311,6 +313,14 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
                 if (!daSala(p)) return;
                 setVencedor(p.vencedor);
                 registrar(`🏆 Vencedor: ${p.vencedor}`);
+            },
+            partidaAbortada(p) {
+                if (!daSala(p)) return;
+                // Erro interno inesperado no motor (ver partidaAbortada em
+                // PROTOCOLO.md) — a partida parou e não volta. Sem vencedor:
+                // só avisa e trava a mesa onde está.
+                setErro(`A partida foi interrompida por um erro interno${p.erro ? `: ${p.erro}` : ''}.`);
+                registrar(`⛔ Partida abortada (${p.motivo ?? 'erro interno'})`);
             },
             convidadoParaRevanche(p) {
                 if (!daSala(p)) return;
@@ -831,7 +841,7 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
             <aside className="chat-painel">
                 <h3>Chat</h3>
                 <div className="chat-prontas">
-                    {MENSAGENS_PRONTAS.map((m) => (
+                    {MENSAGENS_CHAT.map((m) => (
                         <button
                             key={m.id}
                             type="button"

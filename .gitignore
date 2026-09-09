@@ -2,7 +2,9 @@
 /node_modules/
 /public/app/node_modules/
 
-# Build da interface React (gerado por `npm run build` dentro de public/ap
+# Build da interface React — gerado por `npm run build` dentro de public/app
+# (ou por GameStart.js). É artefato: sempre reconstruído, nunca versionado.
+/public/dist/
 
 # Logs e variáveis de ambiente
 npm-debug.log*
@@ -49,3 +51,5 @@ __pycache__/
 /conexao/socketServer.test.js
 /conexao/jwt.test.js
 /conexao/cadastro.test.js
+/game/maxDeck.test.js
+/training/python/test_motor_maxdeck.py

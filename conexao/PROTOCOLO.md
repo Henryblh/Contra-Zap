@@ -155,22 +155,29 @@ cliente reage do mesmo jeito aos três: descarta a sessão salva e volta pro
 login normal).
 
 ### `criarSala`
-Payload: `{ numberPlayers?: number, roundStart?: number, randomShuffle?: boolean, botNumber?: number, chatAberto?: boolean }`
-(todos opcionais — default vem do `SalaManager`: 4 / 3 / true / 0 / false)
-`numberPlayers` precisa ser inteiro entre 2 e 6; `roundStart` inteiro ≥ 1;
-`botNumber` inteiro entre 0 e `numberPlayers - 1` (sempre sobra pelo menos o
-assento de quem criou); `chatAberto`, se vier, precisa ser boolean — fora
-disso, `CONFIGURACAO_INVALIDA`. `chatAberto` libera o chat de texto livre da
-sala (ver evento `chat`); as mensagens prontas não dependem dele.
+Payload: `{ numberPlayers?: number, roundStart?: number, randomShuffle?: boolean, maxDeck?: number, botNumber?: number, chatAberto?: boolean }`
+(todos opcionais — default vem do `SalaManager`: 4 / 3 / true / 50 / 0 / false)
+`numberPlayers` precisa ser inteiro entre 2 e 6; `roundStart` inteiro entre
+1 e 10 (o teto evita montar milhares de baralhos e estourar a memória);
+`maxDeck` inteiro entre 1 e 50 — máximo de baralhos de 40 cartas que a
+partida monta numa rodada. Enquanto a próxima rodada (mão maior) não couber
+nesse teto, a mão para de crescer; volta a crescer quando alguém morre e
+libera cartas na mesa. 50 é o topo e vale "Sem Limite" (2000 cartas,
+inalcançável). Se `roundStart` com a mesa cheia já não couber em `maxDeck`,
+`CONFIGURACAO_INVALIDA`. `botNumber` inteiro entre 0 e `numberPlayers - 1`
+(sempre sobra pelo menos o assento de quem criou); `chatAberto` e
+`randomShuffle`, se vierem, precisam ser boolean — fora disso,
+`CONFIGURACAO_INVALIDA`. `chatAberto` libera o chat de texto livre da sala
+(ver evento `chat`); as mensagens prontas não dependem dele.
 `botNumber` preenche o resto dos assentos com bots (ver `bots/Bot.js`)
 assim que a sala nasce, na ordem de entrada normal — se isso já lotar a
 sala, a partida é agendada na hora, igual qualquer `entrarSala` que lote.
 Bots não têm socket: não aparecem em `jogadorPorSocket`, nunca desconectam
 nem reconectam, e cada turno deles é decidido por `bots/BotBrain.js` e
-jogado depois de uma pausa de `atrasoBotMs` (1s por padrão), sem esperar
+jogado depois de uma pausa de `atrasoBotMs` (2s por padrão), sem esperar
 `tempoTurnoMs` (ver `PlayerGame.bot`).
 Pré-condição: socket já mandou `entrar` com sucesso.
-Ack sucesso: `{ ok: true, salaId, numberPlayers, jogadores: [{ nome }],
+Ack sucesso: `{ ok: true, salaId, numberPlayers, jogadores: [{ nome, adm }],
 segundosParaIniciar: number | null, chatAberto: boolean }`. O socket já dá `join` na sala;
 `jogadores` vem no próprio ack (o dono + os bots que `botNumber` já colocou)
 porque o broadcast de `listaJogadores` sai *dentro* deste handler, antes do
@@ -277,7 +284,7 @@ Ack sucesso: mesmo formato de `criarSala`/`entrarSala` — `{ ok: true,
 salaId, numberPlayers, jogadores, segundosParaIniciar: number | null,
 chatAberto }`, só que `salaId` aqui já é o da sala **nova**. A sala nova
 nasce com exatamente a mesma config da que terminou (`numberPlayers`,
-`roundStart`, `randomShuffle`, `botNumber`, `chatAberto`) e o adm já entra
+`roundStart`, `randomShuffle`, `maxDeck`, `botNumber`, `chatAberto`) e o adm já entra
 nela, do mesmo jeito que `criarSala` — ela fica esperando gente lotar, igual
 qualquer sala nova.
 Além do ack, todo mundo que ainda estava na sala antiga (broadcast em
@@ -340,11 +347,10 @@ Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`, `SALA_NAO_INICIADA`
 `NAO_E_SUA_VEZ`, `CARTA_INVALIDA` (índice fora da mão).
 
 **Timeout do turno**: cada `turnoJogador` tem um prazo (`tempoTurnoMs` no
-`GameController`, 15s por padrão) pra `jogarCarta` chegar. Se estourar, o
-servidor joga sozinho por aquele jogador — mesma decisão simples usada pros
-bots de verdade (hoje sempre a última carta da mão; ver `bots/BotBrain.js`
-— trocar por uma escolha melhor, ou treinar com ML, é trabalho futuro) —
-liga a flag `desconectado` nele e emite `jogadaAutomatica` pra sala. Uma
+`GameController`, 20s por padrão) pra `jogarCarta` chegar. Se estourar, o
+servidor joga sozinho por aquele jogador — mesma decisão usada pros bots de
+verdade (ver `bots/BotBrain.js`) — liga a flag `desconectado` nele e emite
+`jogadaAutomatica` pra sala. Uma
 falta isolada é só isso: o próximo turno dele continua esperando
 `tempoTurnoMs` normalmente, do zero — pode ter sido só uma demora.
 `limiteInatividadeMs`/`jogadorExpulsoPorInatividade` (ver abaixo) não
@@ -353,7 +359,7 @@ existir bot. Só quando isso realmente acumula o suficiente pra estourar
 `limiteInatividadeMs` (várias faltas seguidas, não uma só) é que ele é
 considerado desconectado de verdade — expulsa o socket da sala **e** liga a
 flag `bot` (`PlayerGame.bot`): a partir daí esse assento para de esperar
-`tempoTurnoMs` e joga na hora, com uma pausa de `atrasoBotMs` (1s por
+`tempoTurnoMs` e joga na hora, com uma pausa de `atrasoBotMs` (2s por
 padrão, mesma pausa de um bot de verdade — ver `GameController`) só pra não
 resolver a vaza inteira instantaneamente. As flags só desligam quando ele
 manda `jogarCarta`/`apostar` de novo com sucesso, ou reconecta (ver
@@ -502,9 +508,11 @@ tentativa antes do prazo devolve `CHAT_EM_COOLDOWN` sem mandar
 `chatMensagem` nenhum. Só uma mensagem que passou em todas as outras
 validações conta pro relógio — uma tentativa rejeitada por
 `CHAT_INVALIDO`/`CHAT_DESABILITADO` não consome nem estica o prazo de quem
-já estava dentro dele. `CHAT_COOLDOWN_MS` no front (`chatMensagens.js`) é
-só cosmético (desabilita os botões na hora); quem decide de verdade é o
-servidor — os dois valores precisam ficar sincronizados manualmente.
+já estava dentro dele. `CHAT_COOLDOWN_MS` no front é só cosmético (desabilita
+os botões na hora); quem decide de verdade é o servidor. O front importa essa
+constante — e o catálogo de mensagens prontas — direto de
+`conexao/chat/mensagensChat.js` (fonte única), então não há sincronização
+manual entre os dois lados.
 
 Ack sucesso: `{ ok: true }`. O servidor então faz `chatMensagem` pra sala
 inteira, **incluindo quem enviou** (o cliente não renderiza otimista — espera
@@ -520,7 +528,7 @@ vão só pra `jogador:<id>` de cada destinatário (e cada um recebe um recorte
 diferente, no caso de `maosReveladas`).
 
 ### `listaJogadores`
-`{ salaId, jogadores: [{ nome }] }` — toda vez que a lista de espera muda.
+`{ salaId, jogadores: [{ nome, adm }] }` — toda vez que a lista de espera muda.
 
 ### `partidaIniciandoEm`
 `{ salaId, segundos }` — disparado assim que a sala lota. `segundos` é a
@@ -546,6 +554,7 @@ adicionado:
 | `rodadaFinalizada` | `{ numero, resultado }` |
 | `jogadoresEliminados` | `{ eliminados: [{ nome, hp }] }` |
 | `jogoFinalizado` | `{ vencedor }` |
+| `partidaAbortada` | `{ motivo, erro }` — erro interno inesperado no motor (invariante quebrada, ex.: baralho vazio por conta errada de baralhos). A partida parou e **não recupera**; `GameController.finalizada` vira `true` (igual `jogoFinalizado`), mas **não há vencedor**. A sala não é desmontada sozinha — ver "Limpeza de sala após o fim da partida" abaixo. Cliente deve mostrar erro e deixar sair. |
 | `jogadaAutomatica` | `{ id, jogador }` — `tempoTurnoMs` estourou, o servidor jogou sozinho por ele |
 | `jogadorReconectou` | `{ id, jogador }` — voltou via `reconectar`, flag `desconectado` desligada |
 | `jogadorExpulsoPorInatividade` | `{ id, jogador }` — `limiteInatividadeMs` sem nenhuma ação real dele **ou** ele mandou `sairDaPartida`; o socket dele já saiu da room dessa sala (assento continua e vira bot, ver seção de `reconectar` acima) |
@@ -568,9 +577,9 @@ só reusam eventos que já existem.
 
 ### Limpeza de sala após o fim da partida
 
-Depois que `jogoFinalizado` dispara (`GameController.finalizada` vira
-`true`), a sala continua existindo — dá pra `jogarDeNovo` (só o adm) ou só
-sair. Mas assim que **nenhum socket** continuar conectado na room dela
+Depois que `jogoFinalizado` **ou `partidaAbortada`** dispara
+(`GameController.finalizada` vira `true`), a sala continua existindo — dá pra
+`jogarDeNovo` (só o adm) ou só sair. Mas assim que **nenhum socket** continuar conectado na room dela
 (cada jeito de sair de uma sala terminada — `sairDaPartida`, aceitar ou
 recusar um convite de revanche, ou só fechar a aba — tira o socket da room),
 o servidor descarta a sala do sistema na mesma hora: some do `SalaManager`,
@@ -625,7 +634,7 @@ igual na sala de espera e na partida.
 | `CONVIDADO_INVALIDO` | `entrarComoConvidado` com nome menor que 3 caracteres |
 | `TOKEN_INVALIDO` | `retomarSessao` com token que não bate a assinatura, expirou, ou veio ausente/malformado |
 | `NOME_INVALIDO` | `entrarSala` com nome já em uso *nessa sala* |
-| `CONFIGURACAO_INVALIDA` | `criarSala` com `numberPlayers`/`roundStart`/`botNumber` fora do intervalo aceito, ou `chatAberto` que não é boolean |
+| `CONFIGURACAO_INVALIDA` | `criarSala` com `numberPlayers`/`roundStart`/`maxDeck`/`botNumber` fora do intervalo aceito (`roundStart` 1 a 10, `maxDeck` 1 a 50), `roundStart` que não cabe em `maxDeck` baralhos com a mesa cheia, ou `chatAberto`/`randomShuffle` que não é boolean |
 | `SALA_NAO_ENCONTRADA` | `entrarSala`/`forcarInicio`/`sairSala`/`jogarCarta`/`reconectar` com `salaId` que não existe |
 | `SALA_CHEIA` | `entrarSala` numa sala que já tem `numberPlayers` jogadores |
 | `SALA_NAO_CHEIA` | `forcarInicio` antes da sala lotar |
@@ -647,12 +656,14 @@ igual na sala de espera e na partida.
 
 ## O que fica fora deste marco (decisão adiada, não esquecida)
 
-- Bot de verdade. `escolherCartaAutomatica` (`game/GameController.js`) hoje
-  só devolve a última carta da mão — dá pra validar o mecanismo de
-  timeout/flag ponta a ponta, mas não é uma escolha estratégica nenhuma.
-  Trocar por algo que jogue com alguma lógica é trabalho futuro; hoje, depois
-  da expulsão por inatividade, é exatamente essa mesma jogada boba que
-  continua acontecendo a cada turno até alguém voltar via `reconectar`.
+- Bot forte em qualquer configuração de sala. Hoje `bots/BotBrain.js`
+  (`escolherCarta`/`escolherAposta`) joga com redes treinadas por RL (ver
+  `training/`) só em salas de 4 jogadores; fora disso, ou se os modelos não
+  carregarem, cai num heurístico burro ("última carta", "aposta 1"). É essa
+  mesma decisão (rede ou heurístico) que roda pelo assento no automático a
+  cada turno depois da expulsão por inatividade, até alguém voltar via
+  `reconectar`. Uma estratégia que cubra as outras contagens de jogador
+  continua sendo trabalho futuro.
 - Reconectar durante a **sala de espera** (antes da partida começar) não
   existe como conceito separado — hoje uma desconexão nessa fase tira o
   jogador da sala (`sairSala`), então "reconectar" ali é só logar de novo e
@@ -663,7 +674,8 @@ igual na sala de espera e na partida.
   na hora (reaproveitando o caminho da expulsão por inatividade): a partida
   segue com o mesmo número de assentos, a vaga continua reservada pra
   `reconectar`, e ninguém "ganha no grito" por alguém ter saído.
-- Reconexão via `Main2.js`: o harness de CLI não guarda o token entre
-  execuções nem oferece a opção "reconectar" no menu — pra testar o fluxo
-  de reconexão hoje é preciso emitir o evento manualmente (ou usar os
-  testes automatizados, que já cobrem o caminho ponta a ponta).
+- Persistência de sessão no `Main2.js`: o harness de CLI não guarda o token
+  entre execuções — a cada `node Main2.js` é preciso logar de novo. Ele já
+  oferece `reconectar` logo após o login (checa `minhaSalaAtiva`) e tem um
+  comando `sair` durante a partida (`sairSala`/`sairDaPartida`); o que falta
+  é só não pedir nome/senha toda vez.

@@ -1,16 +1,34 @@
-// Rodada.js (ou RodadaGame.js)
+// Rodada.js
 import { Baralho } from './Baralho.js';
 import { Mesa } from './Mesa.js';
 
-export class RodadaGame {
+export class Rodada {
     constructor(gameSettings) {
         // Puxamos as configurações diretamente da instância do Game que foi passada
         this.gameOrder = gameSettings.gameOrder;
         this.round = gameSettings.round;
         this.randomShuffle = gameSettings.randomShuffle;
 
+        // jogadores vivos * cartas por mao + 1 pra vira. numCards e o total
+        // exato consumido na rodada (darCartas + virarManilha).
         this.numCards = (this.gameOrder.length * this.round) + 1;
-        this.numBaralho = Math.trunc((this.numCards / 40) + 1);
+        // ceil: menor nº de baralhos de 40 que cobre numCards. trunc(x/40 + 1)
+        // (o que estava aqui) alocava um baralho a mais quando numCards era
+        // multiplo exato de 40.
+        this.numBaralho = Math.ceil(this.numCards / 40);
+
+        // Fail-fast: o monte TEM que caber a rodada exata. Se não cabe, algo
+        // fora daqui está quebrado (gameOrder/round corrompido, ou a conta
+        // acima) — para na construção da Rodada, antes de distribuir a
+        // primeira carta, com o quadro completo.
+        if (this.numBaralho * 40 < this.numCards) {
+            throw new Error(
+                `Rodada impossível: ${this.gameOrder.length} jogador(es) x ${this.round} ` +
+                `carta(s) + vira = ${this.numCards} cartas, mas só ${this.numBaralho * 40} ` +
+                `disponíveis (${this.numBaralho} baralho(s)).`
+            );
+        }
+
         this.baralho = new Baralho(this.numBaralho, this.randomShuffle);
 
         this.vira = null;
@@ -23,17 +41,18 @@ export class RodadaGame {
     }
 
     darCartas() {
+        // baralho.comprar() lança se o monte esvaziar (situação extraordinária,
+        // ver Baralho.js) — não precisa checar null aqui.
         for (let j = 0 ; j < this.gameOrder.length; j++) {
             for (let i = 0 ; i < this.round; i++) {
-                let carta = this.baralho.comprar();
-                if (carta) {
-                    this.gameOrder[j].comprarCarta(carta);
-                }
+                this.gameOrder[j].comprarCarta(this.baralho.comprar());
             }
         }
     }
 
     virarManilha() {
+        // comprar() lança se não houver carta pra vira (ver Baralho.js) —
+        // this.vira nunca é null aqui.
         this.vira = this.baralho.comprar();
         this.viraValor = (this.vira.valorInt === 9) ? 0 : this.vira.valorInt + 1;
 

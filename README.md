@@ -185,7 +185,13 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
 - ✅ Timeout de turno + expulsão por inatividade + reconexão de quem caiu.
 - ✅ Jogar de novo: sala nova com a mesma config, convite pra quem ficou.
 - ✅ Bots preenchem assento e assumem quem for expulso por inatividade —
-  falta só a inteligência de verdade (ver "o que falta fazer").
+  jogam com redes treinadas por RL (ver `training/`) em qualquer tamanho de
+  sala (2 a 6): a observação é encaixada no formato de 4 assentos com que as
+  redes treinaram (`bots/BotBrain.js:ajustarParaModelo`). Forte em 4,
+  razoável em 2–3 (assento fantasma ≈ jogador já eliminado, estado visto no
+  treino), mais fraco em 5–6 (fora da distribuição de treino). Heurístico
+  burro ("última carta / aposta 1") só como último recurso, se os modelos
+  nem carregarem (ver "o que falta fazer").
 - ✅ Vaga fica reservada por um tempo depois de virar bot; expirando sem
   reconectar, não pode mais ser reclamada e, se não sobrar ninguém real, a
   sala é descartada sozinha.
@@ -244,10 +250,19 @@ checkpoints completos e usa torneios no motor JavaScript para a seleção.
 Gaps estruturais de verdade — o motor/protocolo tem um buraco real, não é só
 polimento.
 
-- **Lógica de verdade dos bots** (`bots/BotBrain.js`) — hoje é só um
-  placeholder burro (sempre a última carta, sempre aposta 1). A estrutura já
-  tá pronta pra trocar isso sem mexer em mais nada; o plano é evoluir pra uma
-  estratégia melhor e, mais pra frente, treinar com ML.
+- **Rede de RL treinada com nº de assentos variável (ou uma dedicada a 5–6)**
+  (`bots/BotBrain.js`, `training/`) — o bot **já** usa as redes de RL em
+  qualquer sala de 2 a 6: `ajustarParaModelo()` encaixa a observação no
+  formato de 4 assentos com que elas treinaram (completa com assento
+  fantasma quando há menos gente — o que a rede lê como jogador já
+  eliminado, estado que ela viu muito em partidas de 4 — e corta os assentos
+  mais distantes quando há mais). Isso cobre 2–3 de forma decente, mas **5–6
+  fica fora da distribuição de treino**: a rede nunca viu mais de 4 na mesa,
+  então a jogada é coerente mas fraca. O que falta é treinar com número de
+  assentos variável (mudar `training/env_bridge.js:NUM_SEATS` e a codificação
+  de observação pra tamanho fixo com padding) ou treinar uma rede específica
+  de 5–6 e plugar em `BotBrain`. Enquanto isso não existe, o heurístico burro
+  (última carta, aposta 1) só entra se os modelos nem carregarem.
 - Subir o servidor num ambiente de verdade, com sockets web funcionando fora
   da rede local (hoje só foi testado em `localhost`).
 
@@ -265,3 +280,67 @@ não parece compensar o ganho agora.
   qualquer coisa além de conta de usuário (`banco.sqlite` só guarda nome +
   hash de senha hoje — salas, placar, quem jogou o quê vivem só na memória e
   somem num restart).
+
+## Backlog técnico — auditoria de backend
+
+Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
+
+### 1. Segurança & autenticação
+1. 🔴 Sem rate-limit/lockout no `entrar` — o custo do bcrypt (~70ms) é o único freio contra brute force de senha. `login.js`
+2. 🔴 `verificarNome` é oráculo de enumeração de usuários: sem auth, sem limite. `socketServer.js`
+3. 🔴 Timing oracle no `entrar`: nome inexistente responde na hora, senha errada só depois do bcrypt. Falta um compare dummy. `login.js`
+4. 🟡 `bcrypt.hashSync`/`compareSync` bloqueiam o event loop a cada login/cadastro. Migrar pra async. `db.js`
+5. 🟢 `bcryptjs` (JS puro) é ~3-4x mais lento que o nativo. `db.js`
+6. 🔴 Sem teto de tamanho em `nome`/`senha` — string gigante vira CPU/memória. Capar.
+7. 🔴 Nenhum evento de socket tem rate-limit (`criarSala`, `verificarNome`...). `socketServer.js`
+8. 🟡 Socket pode se reautenticar no meio da sessão e trocar de identidade. Falta guard "já autenticado". `socketServer.js`
+9. 🟡 `banco.json` versiona senha em texto puro e `semearSeVazio()` roda em qualquer ambiente → prod nasce com `henrique/123`. Restringir a dev. `db.js`
+10. 🟢 `jwt.secret` gerado sem flag `wx`; apagar o arquivo invalida todas as sessões em silêncio. `jwt.js`
+11. 🟡 `retomarSessao` não confere se a conta ainda existe. `retomarSessao.js`
+12. 🟡 Contador de `idEfemero.js` reinicia em -1 a cada restart, mas token de convidado vale 6h → risco de colisão de id. `idEfemero.js`
+13. 🟡 Sem HTTPS/wss (item de "produção").
+
+### 2. Motor de jogo (`game/`)
+18. 🟢 Desempate `vivos.length === 0` por menor `|aposta-steak|`; empate nisso → primeiro de `gameOrder`, arbitrário. `GameController.js`
+20. 🟡 `_avancarOuFinalizar` → `await _jogarRodadaAtual()` é recursão sem desenrolar pilha. Trocar por loop. `GameController.js`
+21. 🟡 `setstartsequence()`/`embaralharArray()` usam `Math.random()` não-semeável → impossível reproduzir uma partida. `Game.js`, `Baralho.js`
+22. 🟡 `PlayerGame` faz `super(nome, senha, rate)` mas `Player` só aceita 2 args → `rate` descartado; assento carrega senha dentro do motor. `PlayerGame.js`
+23. 🟢 `PlayerGame.jogarCarta(carta){ return carta; }` — método morto. `PlayerGame.js`
+24. 🟢 `Carta.js`: comentários "Faltava o return!" sobrando + getter/setter redundante por campo.
+25. 🟢 `GameController` emite `jogadorEntrou`/`jogadorSaiu` que ninguém retransmite. `GameController.js`
+26. 🟢 `hp` pode ficar bem negativo (sem piso em 0). `Rodada.js`
+
+### 3. Reconexão / estado de partida
+27. 🔴 `estadoDeReconexao` não devolve mesa da vaza atual, vira/manilha, apostas dos outros, hp/steak, eliminados, nº da rodada, placar. `GameController.js`
+28. 🔴 `Partida.jsx` `ressincronizar` tem os mesmos buracos (não repovoa `mesa`, `vira`, `apostas`, `eliminados`). `Partida.jsx`
+29. 🔴 Fechar aba antiga / relogar em outra aba dispara `disconnect` do socket velho → `sairSala` remove o assento do jogador ainda ativo. `socketServer.js`
+30. 🟡 `minhaSalaAtiva` devolve só a primeira sala quando há assento em várias partidas. `SalaManager.js`
+
+### 4. Limpeza de recursos / memória
+31. 🟡 `GameController` sem teardown: sala removida mas o loop segue rodando, listeners nunca removidos, timers de reserva disparam num controller solto. `socketServer.js`
+32. 🟡 `SalaManager._ultimoChatPorJogador` nunca é podado. `SalaManager.js`
+33. 🟡 Sem teto de salas por jogador nem global; `_gerarSalaId` degrada com muitas salas. `SalaManager.js`
+34. 🟢 `socketPorJogador` pode ficar com entrada obsoleta em cenário multi-aba. `socketServer.js`
+
+### 5. QA / Validação de comportamento
+41. 🟡 Falta Testes Para confirmar paridade de regra JS × motor Python em treinamento 
+
+### 7. Operação / produção / DevOps
+42. 🔴 `Server.js` ignora `process.env.PORT` (`server.listen(3000)` fixo) — Docker/compose setam `PORT` esperando que valha. `Server.js`
+43. 🟡 `express.static('public/dist')` e `sendFile(__dirname + '/public/dist/...')` usam caminho relativo/concatenação. Usar `path.join`. `Server.js`
+44. 🔴 Sem shutdown gracioso (SIGTERM/SIGINT): drenar conexões, `wal_checkpoint`, `db.close()`. `Server.js`, `db.js`
+45. 🔴 Sem `uncaughtException`/`unhandledRejection` — um throw num `setTimeout` do `GameController` derruba o servidor inteiro. `Server.js`
+46. 🟡 Log tudo em `console.*`, sem nível/timestamp/JSON/request-id.
+47. 🟢 `/health` sempre 200 mesmo com o banco quebrado. `Server.js`
+48. 🟡 Arquitetura single-process em memória + socket.io sem adapter → não escala horizontalmente.
+49. 🔴 `docker-compose.yml`: volumes comentados → `banco.sqlite`/`jwt.secret` só no container; todo `up --build` perde contas e rotaciona o JWT. O `touch` do README ficou sem sentido. `docker-compose.yml`
+50. 🟡 `docker-compose.yml` fixa `platform: linux/arm64` → quebra em host/CI amd64. `docker-compose.yml`
+51. 🔴 `Dockerfile` não builda o front — **agora que `public/dist` saiu do git, virou pré-requisito pra imagem subir com frontend.** `Dockerfile`
+52. 🟢 `Dockerfile` linha `RUN find node_modules/better-sqlite3 -name "*.node"` — debug sobrando. `Dockerfile`
+53. 🟢 `Dockerfile` sem multi-stage: imagem final carrega `python3 make g++`. `Dockerfile`
+54. 🟡 `.dockerignore` não exclui `training/` (`.venv`), `public/app/node_modules`, `banco.sqlite-*`. `.dockerignore`
+55. 🔴 CI roda zero teste de backend: `conexao/*.test.js` são gitignorados; num checkout limpo `npm test` não acha nada e sai 0. `ci.yml`, `package.json`
+56. 🟢 `GameStart.js` roda `npm install` toda vez sem checar `node_modules`; não repassa SIGINT pro filho. `GameStart.js`
+
+### 8. Documentação vs código
+61. 🟡 README seção Docker: o passo `touch banco.sqlite jwt.secret` ficou sem efeito (volumes do compose comentados). Depende de decidir sobre os volumes (item 49). `README.md`

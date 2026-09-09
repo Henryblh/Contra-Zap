@@ -13,6 +13,12 @@ export default defineConfig({
     emptyOutDir: true,
   },
   server: {
+    // Partida.jsx importa conexao/chat/mensagensChat.js (fonte única do
+    // catálogo de chat, fora da raiz public/app) — libera o acesso do dev
+    // server a esse arquivo. O build (Rollup) não depende disto.
+    fs: {
+      allow: ['..', '../..'],
+    },
     proxy: {
       '/socket.io': {
         target: 'http://localhost:3000',

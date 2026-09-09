@@ -1,13 +1,13 @@
 // GameController.js
 // Dona da sala de espera (lista de jogadores antes da partida começar) e
-// orquestra a partida inteira (Game -> RodadaGame -> Mesa) quando ela
+// orquestra a partida inteira (Game -> Rodada -> Mesa) quando ela
 // começa, expondo o andamento como eventos em vez de console.log espalhado.
 //
 // Isso serve dois consumidores ao mesmo tempo, sem duplicar a lógica de regras:
 //  - Main.js: assina os eventos e imprime no console (harness de teste local)
 //  - Server.js (futuro): assina os eventos e faz io.emit(...) para os clientes via socket.io
 import { EventEmitter } from 'node:events';
-import { Game } from './Game.js';
+import { Game, MAX_DECK_SEM_LIMITE } from './Game.js';
 import { PlayerGame } from './PlayerGame.js';
 import { escolherCarta, escolherAposta } from '../bots/BotBrain.js';
 
@@ -19,11 +19,15 @@ import { escolherCarta, escolherAposta } from '../bots/BotBrain.js';
 const ATRASO_BOT_MS_SALA_ABANDONADA = 50;
 
 export class GameController extends EventEmitter {
-    constructor({ numberPlayers, roundStart, randomShuffle, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs, tempoReservaMs } = {}) {
+    constructor({ numberPlayers, roundStart, randomShuffle, maxDeck, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs, tempoReservaMs } = {}) {
         super();
         this.numberPlayers = numberPlayers || 4;
         this.roundStart = roundStart || 3;
         this.randomShuffle = randomShuffle;
+        // Máximo de baralhos por rodada (ver Game.proximaRodada). Sem valor na
+        // config = "Sem Limite" (MAX_DECK_SEM_LIMITE). A validação de que
+        // roundStart cabe nesse teto é da camada de sala (SalaManager).
+        this.maxDeck = maxDeck ?? MAX_DECK_SEM_LIMITE;
         // Quanto tempo esperar a jogada real antes de cair pro automático
         // (ver _aguardarJogadaOuTimeout). Campo público de propósito — dá
         // pra ajustar por sala (ex.: testes usam um valor bem menor).
@@ -156,6 +160,7 @@ export class GameController extends EventEmitter {
             numberPlayers: this.numberPlayers,
             roundStart: this.roundStart,
             randomShuffle: this.randomShuffle,
+            maxDeck: this.maxDeck,
             jogadores: [...this.jogadores],
         });
         this.game.setstartsequence();
@@ -178,11 +183,37 @@ export class GameController extends EventEmitter {
         // espera nada disso, só dispara e devolve na hora. O .catch aqui é
         // a mesma filosofia do responder() em socketServer.js: um erro
         // inesperado no meio da partida não pode virar um unhandled
-        // rejection e derrubar o processo.
-        this._jogarRodadaAtual().catch(erro => {
-            console.error('Erro inesperado durante a partida:', erro);
-        });
+        // rejection e derrubar o processo — mas, diferente de antes, não
+        // engole em silêncio: aborta a partida e avisa a sala (ver
+        // _abortarPartida).
+        this._jogarRodadaAtual().catch(erro => this._abortarPartida(erro));
         return this;
+    }
+
+    // Chamado quando o loop da partida lança um erro inesperado (ex.: baralho
+    // vazio / Rodada impossível — invariantes que "não deviam acontecer", ver
+    // Baralho.js e Rodada). Não tenta recuperar de propósito: marca a partida
+    // como encerrada, corta os timers soltos e emite 'partidaAbortada' pra
+    // sala inteira, pra ninguém ficar olhando uma mesa congelada sem saber
+    // por quê. O estado fica de pé (não desmonta a sala) pra dar pra
+    // investigar.
+    _abortarPartida(erro) {
+        console.error('Partida abortada por erro interno:', erro);
+
+        if (this._timerInicio) {
+            clearTimeout(this._timerInicio);
+            this._timerInicio = null;
+            this._segundosParaIniciar = null;
+        }
+        for (const timer of this._timersReserva.values()) {
+            clearTimeout(timer);
+        }
+        this._timersReserva.clear();
+
+        // Mesmo efeito de jogoFinalizado pra quem olha de fora (SalaManager,
+        // "jogar de novo"): a partida não está mais "em andamento".
+        this._finalizada = true;
+        this.emit('partidaAbortada', { motivo: 'erro_interno', erro: erro?.message ?? String(erro) });
     }
 
     // Devolve uma Promise que só resolve quando jogarCarta(jogador.id, ...)

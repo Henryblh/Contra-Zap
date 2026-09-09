@@ -14,12 +14,28 @@
 //   - round 1 (rodada cega, aposta 0/1 sem ver a propria carta): round1.json
 //   - round >= 2 (aposta e escolha de carta): noite1.json
 // A escolha de carta no round 1 e forcada (1 carta so), nao usa rede.
+//
+// As duas redes so treinaram em mesa de 4 (training/env_bridge.js), mas
+// aqui rodam pra qualquer tamanho de sala (2 a 6): a observacao tem um
+// bloco de numeros por assento, entao ela e sempre encaixada no formato de
+// 4 assentos por ajustarParaModelo() -- completando com assento fantasma
+// quando ha menos gente, cortando os assentos mais distantes quando ha
+// mais. Fora de 4 e mais fraco (2/3 ainda cai dentro da distribuicao de
+// treino porque "assento fantasma" == jogador ja eliminado, que a rede viu
+// muito; 5/6 nao), mas e melhor que o heuristico burro de "ultima carta /
+// aposta 1" -- que agora so sobra quando os modelos nem carregam ou nao ha
+// `controller`. Uma rede dedicada a 5-6 fica pro futuro (ver README "O que
+// falta fazer").
 import { RedeAtorCritico, argmaxMascarado } from './nn.js';
 
 const MAX_HAND = 12;      // teto de cartas na observacao / espaco de aposta (== MAX_HAND do treino)
 const MAX_APOSTA = MAX_HAND;
 const NUM_RANKS = 10;
 const NUM_NAIPES = 4;
+// Assentos que as redes enxergam. Fixo em 4 porque foi so com 4 que elas
+// treinaram (training/env_bridge.js:NUM_SEATS). Salas de 2/3/5/6 sao
+// encaixadas nesse formato por ajustarParaModelo() -- ver o comentario la.
+const SEATS_MODELO = 4;
 
 // --- carrega os modelos uma vez; falha vira "sem modelo", nunca derruba o servidor ---
 let REDE_NOITE = null;
@@ -63,11 +79,33 @@ function ordemRelativa(jogadores, euId) {
     return ordem;
 }
 
+// As duas redes foram treinadas so em mesa de 4 (ver training/env_bridge.js:
+// NUM_SEATS e harness_round1.py) e a observacao tem um bloco de numeros por
+// assento -- com 2/3/5/6 jogadores o vetor mudaria de tamanho e
+// nn.js:_tronco recusaria ("obs de X valores, rede espera 110"). Aqui a
+// lista de assentos (ja em ordem relativa, eu primeiro) e forcada pra
+// exatamente SEATS_MODELO entradas:
+//   - menos que 4: completa com `null` (assento fantasma). Cada campo dele
+//     vira 0 na obs, que a rede le como um assento ja eliminado -- estado
+//     que ela viu muito em partidas de 4 depois de alguem morrer, entao
+//     continua dentro da distribuicao de treino.
+//   - mais que 4: mantem eu + os SEATS_MODELO-1 seguintes na ordem de
+//     assento e descarta o resto. Aqui sim e fora da distribuicao (a rede
+//     nunca viu 5-6 na mesa); perde a informacao dos assentos mais
+//     distantes, mas nao quebra e joga algo coerente. Rede propria pra 5-6
+//     ainda esta por fazer (ver README).
+function ajustarParaModelo(ordemRel) {
+    const ajustada = ordemRel.slice(0, SEATS_MODELO);
+    while (ajustada.length < SEATS_MODELO) ajustada.push(null);
+    return ajustada;
+}
+
 function codificarMesa(mesaAtiva, ordemRel, viraValor) {
     const jogadasPorId = new Map((mesaAtiva?.cartasNaMesa ?? []).map(j => [j.jogador.id, j.carta]));
     const out = [];
     for (const jogador of ordemRel) {
-        const carta = jogadasPorId.get(jogador.id);
+        // jogador === null -> assento fantasma (ajustarParaModelo), nunca jogou carta.
+        const carta = jogador ? jogadasPorId.get(jogador.id) : null;
         out.push(...(carta ? codificarCarta(carta, viraValor) : CARTA_VAZIA), carta ? 1 : 0);
     }
     return out;
@@ -91,13 +129,18 @@ function idsQueApostaram(controller, jogador, faseAposta) {
 
 function construirObs110(controller, jogador, faseAposta) {
     const rodada = controller.rodada;
-    const ordemRel = ordemRelativa(controller.jogadores, jogador.id);
+    // ordemRelativa devolve N assentos (2..6); a rede treinou com 4 e a obs
+    // tem um bloco por assento (mesa + hp/aposta/steak). ajustarParaModelo
+    // recorta/preenche pra SEMPRE dar SEATS_MODELO blocos -- senao o vetor
+    // muda de tamanho e nn.js:_tronco recusa.
+    const ordemRel = ajustarParaModelo(ordemRelativa(controller.jogadores, jogador.id));
     const apostaram = idsQueApostaram(controller, jogador, faseAposta);
     const cartasJogadas = controller._cartasJogadasRodada ?? new Set();
 
     const hpApostaSteak = [];
     for (const j of ordemRel) {
-        hpApostaSteak.push(j.hp / 3, j.aposta / MAX_APOSTA, j.steak / MAX_HAND, apostaram.has(j.id) ? 1 : 0);
+        if (j) hpApostaSteak.push(j.hp / 3, j.aposta / MAX_APOSTA, j.steak / MAX_HAND, apostaram.has(j.id) ? 1 : 0);
+        else hpApostaSteak.push(0, 0, 0, 0); // assento fantasma: mesmos zeros de um jogador ja eliminado
     }
 
     return [
@@ -110,18 +153,22 @@ function construirObs110(controller, jogador, faseAposta) {
     ];
 }
 
-// Round 1 (rodada cega): ve as 3 cartas dos outros, nao a propria.
+// Round 1 (rodada cega): ve as cartas dos outros, nao a propria. Igual a
+// construirObs110, a rede de round 1 tambem so treinou com 4 assentos
+// (obs_dim=22: 3 cartas de outros + 4 blocos hp/aposta + vira), entao a obs
+// e recortada/preenchida pra esse formato fixo por ajustarParaModelo.
 function construirObsRound1(controller, jogador) {
     const rodada = controller.rodada;
-    const ordemRel = ordemRelativa(controller.jogadores, jogador.id);
+    const ordemRel = ajustarParaModelo(ordemRelativa(controller.jogadores, jogador.id));
     const apostaram = idsQueApostaram(controller, jogador, true);
 
     const vec = [];
     for (const outro of ordemRel.slice(1)) {
-        vec.push(...codificarCarta(outro.mao[0], rodada.viraValor));
+        vec.push(...(outro ? codificarCarta(outro.mao[0], rodada.viraValor) : CARTA_VAZIA));
     }
     for (const j of ordemRel) {
-        vec.push(j.hp / 3, j.aposta / 1, apostaram.has(j.id) ? 1 : 0);
+        if (j) vec.push(j.hp / 3, j.aposta / 1, apostaram.has(j.id) ? 1 : 0);
+        else vec.push(0, 0, 0);
     }
     vec.push(rodada.viraValor / (NUM_RANKS - 1));
     return vec;
@@ -158,6 +205,7 @@ export function escolherCarta(jogador, controller) {
     try {
         const obs = construirObs110(controller, jogador, false);
         const logits = REDE_NOITE.logitsCarta(obs);
+        if (!logits) return heuristico(); // rede sem cabeca de carta (ex.: a de round 1) -- nao deveria chegar aqui, mas nao explode
         const escolha = argmaxMascarado(logits, maskCarta(jogador.mao.length));
         return escolha >= 0 && escolha < jogador.mao.length ? escolha : heuristico();
     } catch (erro) {
