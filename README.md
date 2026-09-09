@@ -185,8 +185,13 @@ Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
 - ✅ Timeout de turno + expulsão por inatividade + reconexão de quem caiu.
 - ✅ Jogar de novo: sala nova com a mesma config, convite pra quem ficou.
 - ✅ Bots preenchem assento e assumem quem for expulso por inatividade —
-  jogam com redes treinadas por RL em salas de 4 jogadores, com heurístico
-  burro como fallback nas outras (ver "o que falta fazer").
+  jogam com redes treinadas por RL (ver `training/`) em qualquer tamanho de
+  sala (2 a 6): a observação é encaixada no formato de 4 assentos com que as
+  redes treinaram (`bots/BotBrain.js:ajustarParaModelo`). Forte em 4,
+  razoável em 2–3 (assento fantasma ≈ jogador já eliminado, estado visto no
+  treino), mais fraco em 5–6 (fora da distribuição de treino). Heurístico
+  burro ("última carta / aposta 1") só como último recurso, se os modelos
+  nem carregarem (ver "o que falta fazer").
 - ✅ Vaga fica reservada por um tempo depois de virar bot; expirando sem
   reconectar, não pode mais ser reclamada e, se não sobrar ninguém real, a
   sala é descartada sozinha.
@@ -245,11 +250,19 @@ checkpoints completos e usa torneios no motor JavaScript para a seleção.
 Gaps estruturais de verdade — o motor/protocolo tem um buraco real, não é só
 polimento.
 
-- **Bot forte em qualquer sala** (`bots/BotBrain.js`) — hoje o bot joga com
-  redes treinadas por RL (ver `training/`) só em salas de 4 jogadores; fora
-  disso, ou se os modelos não carregarem, cai num heurístico burro (última
-  carta, aposta 1). Falta uma estratégia que cubra as outras contagens de
-  jogador.
+- **Rede de RL treinada com nº de assentos variável (ou uma dedicada a 5–6)**
+  (`bots/BotBrain.js`, `training/`) — o bot **já** usa as redes de RL em
+  qualquer sala de 2 a 6: `ajustarParaModelo()` encaixa a observação no
+  formato de 4 assentos com que elas treinaram (completa com assento
+  fantasma quando há menos gente — o que a rede lê como jogador já
+  eliminado, estado que ela viu muito em partidas de 4 — e corta os assentos
+  mais distantes quando há mais). Isso cobre 2–3 de forma decente, mas **5–6
+  fica fora da distribuição de treino**: a rede nunca viu mais de 4 na mesa,
+  então a jogada é coerente mas fraca. O que falta é treinar com número de
+  assentos variável (mudar `training/env_bridge.js:NUM_SEATS` e a codificação
+  de observação pra tamanho fixo com padding) ou treinar uma rede específica
+  de 5–6 e plugar em `BotBrain`. Enquanto isso não existe, o heurístico burro
+  (última carta, aposta 1) só entra se os modelos nem carregarem.
 - Subir o servidor num ambiente de verdade, com sockets web funcionando fora
   da rede local (hoje só foi testado em `localhost`).
 
@@ -279,6 +292,17 @@ deletado), 63 (`public/_intro` mantido de propósito), 64 (`.gitignore`
 consertado, build fora do git), 65 (`RodadaGame` → `Rodada`), 66 (`Main.js`
 não trava mais na aposta), 67 (`Main2.js` com `reconectar` no login + comando
 `sair` a qualquer momento na partida). Do bloco 8 resta só o 61.
+
+**Bloco 6:** 37–40 feitos — as redes de RL agora rodam em qualquer sala de
+2 a 6 jogadores. `bots/BotBrain.js:ajustarParaModelo()` força a observação
+pro formato de 4 assentos com que elas treinaram: completa com assento
+fantasma (tudo zero, que a rede lê como jogador já eliminado — dentro da
+distribuição de treino pra 2–3) quando há menos gente, e corta os assentos
+mais distantes quando há mais (5–6, aí fora da distribuição). O heurístico
+burro só sobra se os modelos nem carregarem. `logitsCarta === null` agora é
+checado explícito, não só pego por `try/catch` (item 40). Resta o 41
+(paridade de regra JS × motor Python). O treino de uma rede que cubra 5–6 de
+verdade virou item de "O que falta fazer".
 
 Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
 
@@ -329,10 +353,6 @@ Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
 36. 🟢 `randomShuffle` não é validado (só `chatAberto` é). `SalaManager.js`
 
 ### 6. Bots / IA
-37. 🔴 As redes treinadas só funcionam em sala de 4 jogadores (`obs_dim=110`); 2/3/5/6 jogadores → a rede lança e cai no heurístico. `BotBrain.js`
-38. 🟡 Mesma limitação de 4p na rede de round 1. `BotBrain.js`
-39. 🟡 Fora de 4p (ou falha de modelo) o bot é "última carta / aposta 1". `BotBrain.js`
-40. 🟢 `nn.js logitsCarta` devolve `null` e `escolherCarta` só se salva por `try/catch`. `nn.js`
 41. 🟡 Regra do jogo duplicada (JS de produção vs motor Python em `training/`) sem teste que pegue divergência.
 
 ### 7. Operação / produção / DevOps
