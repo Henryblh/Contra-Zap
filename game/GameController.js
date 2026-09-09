@@ -735,8 +735,8 @@ export class GameController extends EventEmitter {
     // quem ficou com o hp mais perto de 0 — perdeu menos vida, errou menos.
     // Empate nesse hp (ex.: dois em -1): vence quem chegou nele primeiro, que
     // é quem finalizarRodada processou antes — a ordem de rodada.gameOrder.
-    // Critério provisório ("por enquanto", ver README): o definitivo o time
-    // ainda vai decidir. Devolve false quando a partida continua.
+    // Critério provisório (ver DEV.md, seção PIN): o definitivo o time ainda
+    // vai decidir. Devolve false quando a partida continua.
     _resolverFimDeJogo() {
         const vivos = this.game.gameOrder.filter(j => j.hp > 0);
         if (vivos.length === 1) {

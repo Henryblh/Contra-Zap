@@ -7,292 +7,88 @@ em Node.js, comunicação em tempo real via Socket.io, front-end em React.
 
 ## Pré-requisitos
 
-- [Node.js](https://nodejs.org/) **22 ou superior** (o `better-sqlite3@13`
-  exige Node ≥ 22 — versões anteriores rodam, mas travam com segfault na
-  primeira operação de banco, sem mensagem de erro clara. Se for rodar sem
-  Docker, confirme sua versão com `node -v` antes de reportar bug).
+[Node.js](https://nodejs.org/) **22 ou superior** — o `better-sqlite3@13`
+exige. Em versões anteriores o servidor trava com segfault na primeira
+operação de banco, sem erro claro. Confira com `node -v` (ou use o Docker,
+que não depende da sua versão local).
 
-## Como rodar o projeto
+## Rodar
 
-Se o `Server.js` já estiver rodando em algum terminal seu, **feche ele**
-(`Ctrl+C`) antes de continuar — nenhuma das opções abaixo funciona com dois
-`Server.js` rodando ao mesmo tempo.
-
-**Opção automática** — execute o comando para: (instala dependências, builda
-o front-end e sobe o servidor)
 ```
 node GameStart.js
 ```
-(ou `npm run gamestart`, é a mesma coisa). Espere terminar e abra
-[localhost:3000](http://localhost:3000).
 
-**OU, manualmente, passo a passo:**
+Instala dependências, builda o front e sobe o servidor. Quando terminar, abra
+**[localhost:3000](http://localhost:3000)**.
 
-1. Instale as dependências, na raiz do projeto:
-   ```
-   npm install
-   ```
-2. Gere o build do front-end:
-   ```
-   cd public/app
-   npm run build
-   ```
-3. Volte pra raiz do projeto e, num terminal separado, suba o servidor:
-   ```
-   npm start
-   ```
-4. Abra [localhost:3000](http://localhost:3000) no navegador.
-
-Qualquer uma das duas formas é suficiente pra ter o sistema completo rodando
-(login, salas, partida) do jeito que vai pra "produção".
-
-### Mexendo no front-end (React)
-
-`public/dist` (o que o `Server.js` serve) só é atualizado quando você roda
-`npm run build` — reiniciar o `Server.js` sozinho **não** reflete mudanças em
-`public/app/src`. Pra não ter que buildar toda hora enquanto desenvolve:
-
-1. Num terminal, na raiz: `npm start` (sobe só o back-end, porta 3000).
-2. Em outro terminal, dentro de `public/app`: `npm run dev` (sobe o Vite,
-   porta 5173, já configurado em `vite.config.js` pra proxiar `/socket.io`
-   pro back-end em `:3000`).
-3. Abra `localhost:5173` — qualquer edição em `public/app/src` aparece na
-   hora, sem precisar buildar nem reiniciar nada.
-
-O código do front fica todo em `public/app/src`:
-- `App.jsx` — componente raiz, decide qual tela mostrar.
-- `socket.js` — conexão com o back-end via socket.io-client.
-- `components/Login.jsx`, `Lobby.jsx`, `Partida.jsx` — as três telas
-  principais (login/cadastro, sala de espera, partida em si).
-
-**Antes de mexer no protocolo de eventos (o que o cliente manda/recebe do
-servidor), leia `conexao/PROTOCOLO.md`** — é a fonte de verdade de todos os
-eventos socket.io, payloads e erros possíveis.
-
-## Como rodar com Docker
-
-Alternativa que não depende de ter Node instalado na versão certa na sua
-máquina — tudo roda isolado em container.
-
-**Pré-requisito**: [Docker Desktop](https://www.docker.com/products/docker-desktop)
-instalado e rodando.
-
-1. Na raiz do projeto, na primeira vez, crie os arquivos que o SQLite/JWT
-   geram sozinhos (evita o Docker criar pasta no lugar de arquivo):
-   ```
-   touch banco.sqlite jwt.secret
-   ```
-2. Suba o container:
-   ```
-   docker compose up --build
-   ```
-3. Abra [localhost:3000](http://localhost:3000).
-
-Pra rodar em segundo plano (sem prender o terminal):
-```
-docker compose up -d --build
-```
-
-Pra parar:
-```
-docker compose down
-```
-
-### Verificando se o servidor está saudável
+Passo a passo, se preferir:
 
 ```
-curl http://localhost:3000/health
+npm install
+cd public/app && npm run build && cd ../..
+npm start
 ```
 
-Deve retornar algo como `{"status":"ok","uptime":...,"timestamp":"..."}`.
-O Docker também monitora isso sozinho — `docker compose ps` mostra
-`(healthy)` depois de alguns segundos de container de pé.
+> Só pode haver **um** `Server.js` rodando por vez — feche (`Ctrl+C`) qualquer
+> outro antes.
 
-### Por que a imagem usa Node 22 + Alpine
+## Rodar com Docker
 
-Só documentando pra ninguém precisar redescobrir isso: o binário nativo do
-`better-sqlite3` não tem prebuild compatível pra Node 20, e a combinação
-certa (Node 22 + musl/Alpine + arm64) ainda assim exige compilar o addon do
-zero dentro do container — por isso o `Dockerfile` instala `python3 make
-g++` mesmo usando Alpine. Trocar a versão do Node no Dockerfile sem
-confirmar compatibilidade com o `better-sqlite3` provavelmente quebra o
-build de novo.
-
-### CI/CD
-
-Todo push/PR contra a `main` roda automaticamente testes (`npm test`) e o
-build da imagem Docker via GitHub Actions — ver `.github/workflows/ci.yml`.
-
-## Estrutura do projeto
+Não precisa de Node na versão certa — tudo isolado no container. Precisa do
+[Docker Desktop](https://www.docker.com/products/docker-desktop) instalado.
 
 ```
-game/              -> regras do jogo (baralho, cartas, mesa, rodada, jogadores),
-                      não sabe nada sobre servidor, socket ou front-end
-  GameController.js  -> orquestra uma partida inteira e emite eventos (mão distribuída,
-                         carta jogada, vaza fechada, etc.)
-  idEfemero.js        -> fonte única de ids negativos pra Player sem linha no banco
-                         (compartilhada por bots/Bot.js e conexao/convidado.js)
-bots/              -> jogadores controlados pelo computador
-  Bot.js              -> um "jogador" sem socket (id negativo, nunca desconecta)
-  BotBrain.js         -> decide jogada/aposta automática — hoje um placeholder burro
-conexao/           -> camada de sala/rede, separada das regras do jogo
-  eventos.js          -> vocabulário do protocolo (nomes de evento, códigos de erro)
-  PROTOCOLO.md        -> contrato dos eventos socket.io (payloads, fluxo, erros)
-  db.js               -> persistência de usuários em SQLite (única peça que sabe SQL)
-  jwt.js              -> emite e verifica o token de sessão (JWT assinado, HS256)
-  login.js            -> autentica nome/senha contra o banco e emite token de sessão
-  cadastro.js         -> cria conta nova (nome/senha) e já autentica, mesmo formato do login
-  convidado.js        -> login "convidado": só nome, Player só em memória (id negativo), nunca grava no banco
-  retomarSessao.js    -> reautentica um socket a partir de um token já emitido, sem nome/senha
-  SalaManager.js      -> cria salas e valida entrada de jogadores (sem saber de socket.io)
-  socketServer.js     -> liga o protocolo a sockets de verdade (única peça que conhece socket.io)
-  chat/               -> validação e catálogo de mensagens do chat de sala
-public/app/        -> código-fonte do front-end (React + Vite)
-  src/App.jsx         -> componente raiz
-  src/socket.js       -> conexão socket.io-client com o back-end
-  src/sessao.js       -> persistência da sessão (sessionStorage) e retomada depois de reconexão/F5
-  src/components/     -> telas (Login, Lobby, Partida)
-public/dist/       -> build do front-end (gerado por `npm run build`, servido pelo Server.js)
-Server.js          -> servidor web (Express + Socket.io), liga `conexao/socketServer.js`
-GameStart.js       -> atalho: instala dependências, builda o front e sobe o Server.js, tudo de uma vez
-banco.json         -> fixture inicial de usuários, usada só pra semear o banco.sqlite na 1ª execução
-banco.sqlite       -> banco de verdade (gerado automaticamente, não versionado)
-jwt.secret         -> segredo de assinatura do JWT (gerado automaticamente, não versionado)
-index.js           -> ponto de entrada do módulo (exporta as classes do jogo)
+touch banco.sqlite jwt.secret     # só na primeira vez
+docker compose up --build
 ```
 
-## Como rodar os testes
+Abra [localhost:3000](http://localhost:3000). `docker compose down` pra parar.
+Saúde do servidor: `curl http://localhost:3000/health`.
+
+## Testes
 
 ```
 npm test
 ```
 
-Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
+Test runner nativo do Node (`node --test`), sem dependência extra.
 
-## Ferramentas de debug (linha de comando)
+## Estrutura
 
-- `node Main.js` — simula uma partida inteira com 4 jogadores fixos, sem
-  rede nenhuma, jogadas automáticas. Bom pra testar regras do `game/` isoladas.
-- `node Main2.js` — conecta num `Server.js` já rodando como um jogador de
-  verdade (login + criar/entrar em sala) via terminal. Rode até 4 instâncias
-  em terminais separados pra simular uma mesa completa. Use nomes de
-  `banco.json` (ex.: `henrique`/`123`).
-- Com bots preenchendo assento, dá pra criar uma sala 100% automática
-  (`numberPlayers: 2, botNumber: 1` com só você) — bom caso de teste pra
-  validar o motor inteiro sem precisar de mais gente.
-
-### Avaliador offline de bots
-
-O avaliador reutiliza o motor real da partida, mas não liga modelos treinados
-ao servidor. Rode com a venv de `training`:
-
-```powershell
-training\.venv\Scripts\python.exe training\python\evaluate.py versus `
-  --candidate checkpoint=training\checkpoints\overnight.pt `
-  --opponent heuristic --games 10000 --seed 42
+```
+game/         regras do jogo (baralho, cartas, mesa, rodada). Não conhece rede.
+  GameController.js   orquestra uma partida e expõe o andamento como eventos
+bots/         jogadores controlados por IA (Bot.js + BotBrain.js, redes de RL)
+conexao/      camada de sala/rede
+  PROTOCOLO.md        contrato dos eventos socket.io — leia antes de mexer no protocolo
+  socketServer.js     única peça que conhece socket.io
+  SalaManager.js      cria salas, valida entrada, aplica cooldown de chat
+  db.js jwt.js login.js cadastro.js convidado.js retomarSessao.js   auth/sessão
+  chat/               validação e catálogo do chat de sala
+public/app/   front-end (React + Vite) — código-fonte em src/
+public/dist/  build do front (gerado por `npm run build`, servido pelo Server.js)
+Server.js     servidor web (Express + Socket.io)
+GameStart.js  atalho: instala + builda + sobe, tudo de uma vez
 ```
 
-Também há escalação livre dos quatro assentos:
+## O que já funciona
 
-```powershell
-training\.venv\Scripts\python.exe training\python\evaluate.py lineup `
-  --players checkpoint=training\checkpoints\overnight.pt heuristic random heuristic
-```
+- Motor de jogo completo: apostas, vazas, manilha, eliminação por hp, teto de
+  baralhos por partida (`maxDeck`).
+- Autenticação (login/cadastro com senha em hash), sessão via JWT retomável
+  sem senha depois de F5 ou queda de rede.
+- Salas multiplayer ponta a ponta: criar, entrar, listar, sair, início
+  automático ou forçado pelo dono; partida rápida (fila compartilhada).
+- Partida real via socket.io: jogadas, mão privada, vazas, placar em tempo
+  real, chat de sala com cooldown no servidor.
+- Timeout de turno, expulsão por inatividade, reconexão de quem caiu.
+- Bots preenchem assento e assumem quem for expulso — jogam com redes
+  treinadas por RL (ver `training/`).
+- "Jogar de novo": sala nova com a mesma config, convite pra quem ficou.
+- Interface web em React ponta a ponta (login, lobby, partida).
 
-Descritores aceitos: `checkpoint=<arquivo.pt>`, `heuristic`, `random` e
-`strategy=<módulo>:<Classe>`. Uma estratégia Python deve expor
-`act(kind, obs, legal_mask, rng)` e devolver uma ação permitida. O resultado
-aparece no console e é salvo como JSON em `training/logs/`.
+## Mais
 
-### Treino contra liga
-
-O treinador aceita um manifesto de liga com checkpoints congelados e executa
-PPO somente nos assentos controlados pelo aprendiz. A mistura usada no
-experimento evolutivo é 50% self-play, 35% campeões históricos selecionados
-por PFSP e 15% âncoras (H, overnight, heurístico e aleatório). O orquestrador
-em `training/python/orquestrar_4dias.py` gera esses manifestos, preserva
-checkpoints completos e usa torneios no motor JavaScript para a seleção.
-
-## O que falta fazer
-
-
-- **Rede de RL treinada com nº de assentos variável (ou uma dedicada a 5–6)**
-  (`bots/BotBrain.js`, `training/`) — o bot **já** usa as redes de RL em
-  qualquer sala de 2 a 6: `ajustarParaModelo()` encaixa a observação no
-  formato de 4 assentos com que elas treinaram (completa com assento
-  fantasma quando há menos gente — o que a rede lê como jogador já
-  eliminado, estado que ela viu muito em partidas de 4 — e corta os assentos
-  mais distantes quando há mais). Isso cobre 2–3 de forma decente, mas **5–6
-  fica fora da distribuição de treino**: a rede nunca viu mais de 4 na mesa,
-  então a jogada é coerente mas fraca. O que falta é treinar com número de
-  assentos variável (mudar `training/env_bridge.js:NUM_SEATS` e a codificação
-  de observação pra tamanho fixo com padding) ou treinar uma rede específica
-  de 5–6 e plugar em `BotBrain`. Enquanto isso não existe, o heurístico burro
-  (última carta, aposta 1) só entra se os modelos nem carregarem.
-- Subir o servidor num ambiente de verdade, com sockets web funcionando fora
-  da rede local (hoje só foi testado em `localhost`).
-
-### PIN — só mexer se alguém reclamar
-
-
-
-- `Player.rate` / ranking: existe desde sempre (banco, classe,
-  getter/setter) mas nunca é lido nem atualizado em lugar nenhum. No melhor
-  dos casos é a última coisa que fazemos no projeto; no pior, nunca usamos.
-  Juntar gente de nível parecido em salas ranqueadas depende disso e cai na
-  mesma categoria.
-- Placar/histórico entre partidas (não só o hp da partida atual) e persistir
-  qualquer coisa além de conta de usuário (`banco.sqlite` só guarda nome +
-  hash de senha hoje — salas, placar, quem jogou o quê vivem só na memória e
-  somem num restart).
-
-## Backlog técnico — auditoria de backend
-
-Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
-
-### 1. Segurança & autenticação
-1. 🔴 Sem rate-limit/lockout no `entrar` — o custo do bcrypt (~70ms) é o único freio contra brute force de senha. `login.js`
-2. 🔴 `verificarNome` é oráculo de enumeração de usuários: sem auth, sem limite. `socketServer.js`
-3. 🔴 Timing oracle no `entrar`: nome inexistente responde na hora, senha errada só depois do bcrypt. Falta um compare dummy. `login.js`
-4. 🟡 `bcrypt.hashSync`/`compareSync` bloqueiam o event loop a cada login/cadastro. Migrar pra async. `db.js`
-5. 🟢 `bcryptjs` (JS puro) é ~3-4x mais lento que o nativo. `db.js`
-6. 🔴 Sem teto de tamanho em `nome`/`senha` — string gigante vira CPU/memória. Capar.
-7. 🔴 Nenhum evento de socket tem rate-limit (`criarSala`, `verificarNome`...). `socketServer.js`
-8. 🟡 Socket pode se reautenticar no meio da sessão e trocar de identidade. Falta guard "já autenticado". `socketServer.js`
-9. 🟡 `banco.json` versiona senha em texto puro e `semearSeVazio()` roda em qualquer ambiente → prod nasce com `henrique/123`. Restringir a dev. `db.js`
-10. 🟢 `jwt.secret` gerado sem flag `wx`; apagar o arquivo invalida todas as sessões em silêncio. `jwt.js`
-11. 🟡 `retomarSessao` não confere se a conta ainda existe. `retomarSessao.js`
-12. 🟡 Contador de `idEfemero.js` reinicia em -1 a cada restart, mas token de convidado vale 6h → risco de colisão de id. `idEfemero.js`
-13. 🟡 Sem HTTPS/wss (item de "produção").
-
-### 3. Reconexão / estado de partida
-27. 🔴 `estadoDeReconexao` não devolve mesa da vaza atual, vira/manilha, apostas dos outros, hp/steak, eliminados, nº da rodada, placar. `GameController.js`
-28. 🔴 `Partida.jsx` `ressincronizar` tem os mesmos buracos (não repovoa `mesa`, `vira`, `apostas`, `eliminados`). `Partida.jsx`
-29. 🔴 Fechar aba antiga / relogar em outra aba dispara `disconnect` do socket velho → `sairSala` remove o assento do jogador ainda ativo. `socketServer.js`
-30. 🟡 `minhaSalaAtiva` devolve só a primeira sala quando há assento em várias partidas. `SalaManager.js`
-
-### 4. Limpeza de recursos / memória
-33. 🟢 Sem teto de salas **por jogador** (o global já existe: `MAX_SALAS`). Nada impede um cliente criar várias salas de 1 pessoa e deixar largadas até o disconnect podar. `SalaManager.js`
-
-### 5. QA / Validação de comportamento
-41. 🟡 Falta Testes Para confirmar paridade de regra JS × motor Python em treinamento 
-
-### 7. Operação / produção / DevOps
-42. 🔴 `Server.js` ignora `process.env.PORT` (`server.listen(3000)` fixo) — Docker/compose setam `PORT` esperando que valha. `Server.js`
-43. 🟡 `express.static('public/dist')` e `sendFile(__dirname + '/public/dist/...')` usam caminho relativo/concatenação. Usar `path.join`. `Server.js`
-44. 🔴 Sem shutdown gracioso (SIGTERM/SIGINT): drenar conexões, `wal_checkpoint`, `db.close()`. `Server.js`, `db.js`
-45. 🔴 Sem `uncaughtException`/`unhandledRejection` — um throw num `setTimeout` do `GameController` derruba o servidor inteiro. `Server.js`
-46. 🟡 Log tudo em `console.*`, sem nível/timestamp/JSON/request-id.
-47. 🟢 `/health` sempre 200 mesmo com o banco quebrado. `Server.js`
-48. 🟡 Arquitetura single-process em memória + socket.io sem adapter → não escala horizontalmente.
-49. 🔴 `docker-compose.yml`: volumes comentados → `banco.sqlite`/`jwt.secret` só no container; todo `up --build` perde contas e rotaciona o JWT. O `touch` do README ficou sem sentido. `docker-compose.yml`
-50. 🟡 `docker-compose.yml` fixa `platform: linux/arm64` → quebra em host/CI amd64. `docker-compose.yml`
-51. 🔴 `Dockerfile` não builda o front — **agora que `public/dist` saiu do git, virou pré-requisito pra imagem subir com frontend.** `Dockerfile`
-52. 🟢 `Dockerfile` linha `RUN find node_modules/better-sqlite3 -name "*.node"` — debug sobrando. `Dockerfile`
-53. 🟢 `Dockerfile` sem multi-stage: imagem final carrega `python3 make g++`. `Dockerfile`
-54. 🟡 `.dockerignore` não exclui `training/` (`.venv`), `public/app/node_modules`, `banco.sqlite-*`. `.dockerignore`
-55. 🔴 CI roda zero teste de backend: `conexao/*.test.js` são gitignorados; num checkout limpo `npm test` não acha nada e sai 0. `ci.yml`, `package.json`
-56. 🟢 `GameStart.js` roda `npm install` toda vez sem checar `node_modules`; não repassa SIGINT pro filho. `GameStart.js`
-
-### 8. Documentação vs código
-61. 🟡 README seção Docker: o passo `touch banco.sqlite jwt.secret` ficou sem efeito (volumes do compose comentados). Depende de decidir sobre os volumes (item 49). `README.md`
+- **`conexao/PROTOCOLO.md`** — todos os eventos socket.io, payloads e erros.
+- **`DEV.md`** — workflow de front (Vite), ferramentas de debug, treino de
+  bot, backlog técnico e o que ainda falta.
