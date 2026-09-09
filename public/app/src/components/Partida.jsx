@@ -858,9 +858,17 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
                     {mensagensChat.length === 0
                         ? <span className="vazio">(sem mensagens)</span>
                         : mensagensChat.map((m, i) => (
-                            <div key={i} className="chat-msg">
-                                <strong>{m.jogador === meuNome ? 'Você' : m.jogador}:</strong> {m.texto}
-                            </div>
+                            m.tipo === 'sistema'
+                                ? (
+                                    <div key={i} className="chat-msg chat-msg-sistema">
+                                        <em>{m.jogador} {m.texto}</em>
+                                    </div>
+                                )
+                                : (
+                                    <div key={i} className="chat-msg">
+                                        <strong>{m.jogador === meuNome ? 'Você' : m.jogador}:</strong> {m.texto}
+                                    </div>
+                                )
                         ))}
                 </div>
 

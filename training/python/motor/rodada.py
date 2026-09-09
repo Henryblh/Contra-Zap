@@ -9,10 +9,13 @@ from .mesa import Mesa
 
 
 class Rodada:
-    def __init__(self, game_order, round_, random_shuffle):
+    def __init__(self, game_order, round_, random_shuffle, rng=None):
         self.game_order = game_order
         self.round = round_
         self.random_shuffle = random_shuffle
+        # Mesmo rng do Jogo (ver jogo.py / rng.py): None => random.shuffle no
+        # Baralho; um callable => Fisher-Yates deterministico.
+        self.rng = rng
         # jogadores vivos * cartas por mão + 1 pra vira. num_cards é o total
         # exato consumido na rodada (dar_cartas + virar_manilha).
         num_cards = (len(game_order) * round_) + 1
@@ -31,7 +34,7 @@ class Rodada:
                 f"disponíveis ({num_baralho} baralho(s))."
             )
 
-        self.baralho = Baralho(num_baralho, random_shuffle)
+        self.baralho = Baralho(num_baralho, random_shuffle, self.rng)
         self.vira = None
         self.vira_valor = -1
         self.mesa_ativa = None

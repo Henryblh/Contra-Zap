@@ -382,6 +382,7 @@ button.secundario {
 }
 
 .chat-msg { word-break: break-word; }
+.chat-msg-sistema { opacity: 0.65; font-size: 0.9em; text-align: center; }
 
 .chat-livre {
     display: flex;

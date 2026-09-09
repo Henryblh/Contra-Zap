@@ -12,7 +12,7 @@ em Node.js, comunicação em tempo real via Socket.io, front-end em React.
   primeira operação de banco, sem mensagem de erro clara. Se for rodar sem
   Docker, confirme sua versão com `node -v` antes de reportar bug).
 
-## Como rodar o projeto (comece por aqui)
+## Como rodar o projeto
 
 Se o `Server.js` já estiver rodando em algum terminal seu, **feche ele**
 (`Ctrl+C`) antes de continuar — nenhuma das opções abaixo funciona com dois
@@ -169,38 +169,6 @@ npm test
 
 Usa o test runner nativo do Node (`node --test`) — sem dependência extra.
 
-## Status atual
-
-- ✅ Motor de jogo completo: apostas, vazas, manilha, eliminação por hp.
-- ✅ Autenticação (login/cadastro com senha em hash), sessão via JWT
-  retomável sem senha de novo depois de um F5 ou queda de rede
-  (`retomarSessao`).
-- ✅ Login em etapas: nome primeiro, depois senha (conta existente) ou
-  oferta de cadastro/convidado (conta nova).
-- ✅ Salas multiplayer ponta a ponta: criar, entrar, listar, sair, início
-  automático (ou forçado pelo dono).
-- ✅ Partida rápida: fila compartilhada de sala com config default.
-- ✅ Partida real via socket.io: jogadas, mão privada, vazas, placar em
-  tempo real.
-- ✅ Timeout de turno + expulsão por inatividade + reconexão de quem caiu.
-- ✅ Jogar de novo: sala nova com a mesma config, convite pra quem ficou.
-- ✅ Bots preenchem assento e assumem quem for expulso por inatividade —
-  jogam com redes treinadas por RL (ver `training/`) em qualquer tamanho de
-  sala (2 a 6): a observação é encaixada no formato de 4 assentos com que as
-  redes treinaram (`bots/BotBrain.js:ajustarParaModelo`). Forte em 4,
-  razoável em 2–3 (assento fantasma ≈ jogador já eliminado, estado visto no
-  treino), mais fraco em 5–6 (fora da distribuição de treino). Heurístico
-  burro ("última carta / aposta 1") só como último recurso, se os modelos
-  nem carregarem (ver "o que falta fazer").
-- ✅ Vaga fica reservada por um tempo depois de virar bot; expirando sem
-  reconectar, não pode mais ser reclamada e, se não sobrar ninguém real, a
-  sala é descartada sozinha.
-- ✅ Sala é removida do sistema assim que a partida termina e todo mundo sai
-  dela.
-- ✅ Adm passa pro próximo jogador de verdade se a vaga do adm atual expirar.
-- ✅ Cooldown de chat aplicado no servidor, não só de fachada no front.
-- ✅ Interface web em React funcionando ponta a ponta (login, lobby, partida).
-
 ## Ferramentas de debug (linha de comando)
 
 - `node Main.js` — simula uma partida inteira com 4 jogadores fixos, sem
@@ -247,8 +215,6 @@ checkpoints completos e usa torneios no motor JavaScript para a seleção.
 
 ## O que falta fazer
 
-Gaps estruturais de verdade — o motor/protocolo tem um buraco real, não é só
-polimento.
 
 - **Rede de RL treinada com nº de assentos variável (ou uma dedicada a 5–6)**
   (`bots/BotBrain.js`, `training/`) — o bot **já** usa as redes de RL em
@@ -268,8 +234,7 @@ polimento.
 
 ### PIN — só mexer se alguém reclamar
 
-Fica pra depois de propósito: pro escopo e tipo de sistema, o custo de fazer
-não parece compensar o ganho agora.
+
 
 - `Player.rate` / ranking: existe desde sempre (banco, classe,
   getter/setter) mas nunca é lido nem atualizado em lugar nenhum. No melhor
@@ -300,16 +265,6 @@ Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
 12. 🟡 Contador de `idEfemero.js` reinicia em -1 a cada restart, mas token de convidado vale 6h → risco de colisão de id. `idEfemero.js`
 13. 🟡 Sem HTTPS/wss (item de "produção").
 
-### 2. Motor de jogo (`game/`)
-18. 🟢 Desempate `vivos.length === 0` por menor `|aposta-steak|`; empate nisso → primeiro de `gameOrder`, arbitrário. `GameController.js`
-20. 🟡 `_avancarOuFinalizar` → `await _jogarRodadaAtual()` é recursão sem desenrolar pilha. Trocar por loop. `GameController.js`
-21. 🟡 `setstartsequence()`/`embaralharArray()` usam `Math.random()` não-semeável → impossível reproduzir uma partida. `Game.js`, `Baralho.js`
-22. 🟡 `PlayerGame` faz `super(nome, senha, rate)` mas `Player` só aceita 2 args → `rate` descartado; assento carrega senha dentro do motor. `PlayerGame.js`
-23. 🟢 `PlayerGame.jogarCarta(carta){ return carta; }` — método morto. `PlayerGame.js`
-24. 🟢 `Carta.js`: comentários "Faltava o return!" sobrando + getter/setter redundante por campo.
-25. 🟢 `GameController` emite `jogadorEntrou`/`jogadorSaiu` que ninguém retransmite. `GameController.js`
-26. 🟢 `hp` pode ficar bem negativo (sem piso em 0). `Rodada.js`
-
 ### 3. Reconexão / estado de partida
 27. 🔴 `estadoDeReconexao` não devolve mesa da vaza atual, vira/manilha, apostas dos outros, hp/steak, eliminados, nº da rodada, placar. `GameController.js`
 28. 🔴 `Partida.jsx` `ressincronizar` tem os mesmos buracos (não repovoa `mesa`, `vira`, `apostas`, `eliminados`). `Partida.jsx`
@@ -317,10 +272,7 @@ Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
 30. 🟡 `minhaSalaAtiva` devolve só a primeira sala quando há assento em várias partidas. `SalaManager.js`
 
 ### 4. Limpeza de recursos / memória
-31. 🟡 `GameController` sem teardown: sala removida mas o loop segue rodando, listeners nunca removidos, timers de reserva disparam num controller solto. `socketServer.js`
-32. 🟡 `SalaManager._ultimoChatPorJogador` nunca é podado. `SalaManager.js`
-33. 🟡 Sem teto de salas por jogador nem global; `_gerarSalaId` degrada com muitas salas. `SalaManager.js`
-34. 🟢 `socketPorJogador` pode ficar com entrada obsoleta em cenário multi-aba. `socketServer.js`
+33. 🟢 Sem teto de salas **por jogador** (o global já existe: `MAX_SALAS`). Nada impede um cliente criar várias salas de 1 pessoa e deixar largadas até o disconnect podar. `SalaManager.js`
 
 ### 5. QA / Validação de comportamento
 41. 🟡 Falta Testes Para confirmar paridade de regra JS × motor Python em treinamento 

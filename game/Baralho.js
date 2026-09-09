@@ -1,11 +1,16 @@
 // Baralho.js
 import { Carta } from './Carta.js';
+import { embaralharComRng } from './rng.js';
 
 export class Baralho {
-    // Adicionamos numbaralho e a setting randomShuffle no construtor
-    constructor(numbaralho, randomShuffle) {
+    // numbaralho e a setting randomShuffle vêm do Game via Rodada. `rng` é a
+    // fonte de aleatoriedade (ver rng.js): sem seed no Game é Math.random e
+    // nada muda; com seed é o PRNG determinístico compartilhado, pra partida
+    // reproduzível. Default Math.random pra quem construir Baralho solto.
+    constructor(numbaralho, randomShuffle, rng = Math.random) {
         this.numbaralho = numbaralho;
         this.randomShuffle = randomShuffle;
+        this.rng = rng;
         this.cartas = []; // O array principal de cartas
 
         this.montarBaralhos();
@@ -40,16 +45,23 @@ export class Baralho {
         }
     }
 
-    // Função separada que retorna um array de 40 cartas
+    // Função separada que retorna um array de 40 cartas.
+    // naipes/valores são arrays de [nome, int] (não objeto) de propósito: num
+    // objeto, JS reordena chaves que parecem inteiro ('4','5',...,'2','3') pra
+    // ordem numérica crescente, então a ordem de construção do monte não seria
+    // a escrita aqui — e o motor Python (dict, ordem de inserção) montaria
+    // diferente. Como array, os dois montam na mesma ordem, então a mesma seed
+    // reproduz a mesma partida nos dois (ver rng.js / training/python/motor/
+    // baralho.py).
     construirUmBaralho(idInicial, numeroBaralho) {
-        const naipes = { 'Ouros': 0, 'Espadas': 1, 'Copas': 2, 'Paus': 3 };
-        const valores = { '4': 0, '5': 1, '6': 2, '7': 3, 'Q': 4, 'J': 5, 'K': 6, 'A': 7, '2': 8, '3': 9 };
+        const naipes = [['Ouros', 0], ['Espadas', 1], ['Copas', 2], ['Paus', 3]];
+        const valores = [['4', 0], ['5', 1], ['6', 2], ['7', 3], ['Q', 4], ['J', 5], ['K', 6], ['A', 7], ['2', 8], ['3', 9]];
 
         let deck = [];
         let idCarta = idInicial;
 
-        for (const [nomeNaipe, naipeInt] of Object.entries(naipes)) {
-            for (const [nomeValor, valorInt] of Object.entries(valores)) {
+        for (const [nomeNaipe, naipeInt] of naipes) {
+            for (const [nomeValor, valorInt] of valores) {
                 const novaCarta = new Carta(idCarta, naipeInt, valorInt, nomeNaipe, nomeValor, numeroBaralho);
                 deck.push(novaCarta);
                 idCarta++;
@@ -59,10 +71,7 @@ export class Baralho {
     }
 
     embaralharArray(array) {
-        for (let i = array.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [array[i], array[j]] = [array[j], array[i]];
-        }
+        embaralharComRng(array, this.rng);
     }
 
     // Baralho vazio NUNCA é situação normal: o monte é dimensionado exato pra

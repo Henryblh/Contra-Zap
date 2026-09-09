@@ -32,26 +32,17 @@ import { Player } from '../game/Player.js';
 import { GameController } from '../game/GameController.js';
 
 // A avaliação pode fixar uma seed sem interferir no servidor nem no treino
-// normal: este arquivo sempre roda em um subprocesso próprio. Assim, mesma
-// seed + mesmas políticas produz a mesma sequência de embaralhamentos.
-function instalarAleatoriedadeDeterministica() {
-    const textoSeed = process.env.EVAL_SEED;
-    if (textoSeed === undefined) return;
-
-    const seed = Number(textoSeed);
-    if (!Number.isInteger(seed)) throw new Error('EVAL_SEED deve ser um inteiro.');
-
-    let estado = seed >>> 0;
-    Math.random = () => {
-        estado += 0x6D2B79F5;
-        let t = estado;
-        t = Math.imul(t ^ (t >>> 15), t | 1);
-        t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
-        return ((t ^ (t >>> 14)) >>> 0) / 4_294_967_296;
-    };
-}
-
-instalarAleatoriedadeDeterministica();
+// normal. Antes isto sobrescrevia o Math.random global; agora passa a seed
+// direto pro GameController, que a repassa pro embaralhamento (game/rng.js
+// usa o mesmo mulberry32 de antes — a mesma seed reproduz a mesma sequência).
+// undefined = Math.random de sempre.
+const EVAL_SEED = (() => {
+    const texto = process.env.EVAL_SEED;
+    if (texto === undefined) return undefined;
+    const seed = Number(texto);
+    if (!Number.isInteger(seed) || seed < 0) throw new Error('EVAL_SEED deve ser um inteiro não-negativo.');
+    return seed;
+})();
 
 const NUM_SEATS = 4;
 const ROUND_START = 3;
@@ -231,6 +222,10 @@ async function jogarEpisodio(numeroEpisodio) {
     const controller = new GameController({
         numberPlayers: NUM_SEATS,
         roundStart: ROUND_START,
+        // Uma seed por episódio, derivada da EVAL_SEED — cada partida é
+        // diferente, mas o conjunto todo é reproduzível (antes a seed global
+        // corria continuamente entre episódios, o mesmo efeito).
+        seed: EVAL_SEED === undefined ? undefined : EVAL_SEED + numeroEpisodio,
         tempoTurnoMs: TEMPO_TURNO_MS,
         atrasoBotMs: 0,
     });

@@ -318,7 +318,20 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
             jogadorPorSocket.delete(socket.id);
             salaPorSocket.delete(socket.id);
             if (player && socketPorJogador.get(player.id) === socket.id) {
-                socketPorJogador.delete(player.id);
+                // Este era o socket "atual" desse jogador. Em cenário multi-aba
+                // pode ter sobrado outra conexão autenticada dele — reaponta
+                // socketPorJogador pra ela em vez de deixar a entrada sumir e
+                // o jogador ficar sem socket endereçável (ex.:
+                // jogadorExpulsoPorInatividade não acharia a aba ainda aberta).
+                let substituto = null;
+                for (const [outroSocketId, outroPlayer] of jogadorPorSocket) {
+                    if (outroPlayer.id === player.id) { substituto = outroSocketId; break; }
+                }
+                if (substituto) {
+                    socketPorJogador.set(player.id, substituto);
+                } else {
+                    socketPorJogador.delete(player.id);
+                }
             }
 
             // Best-effort: sem cliente do outro lado pra responder erro
@@ -451,6 +464,18 @@ function ligarControllerASala(io, salaManager, sala, socketPorJogador, salaPorSo
         // encerrarSeFinalizadaEVazia.
         encerrarSeFinalizadaEVazia(io, salaManager, salaId);
     });
+
+    // jogadorEntrou/jogadorSaiu (sala de espera) não têm evento próprio no
+    // protocolo — a lista de jogadores já vai por listaJogadores. Aqui eles
+    // viram uma linha de sistema no chat da sala ("Fulano entrou na sala"),
+    // pra dar um feedback visível de quem chega e sai antes da partida
+    // começar. tipo 'sistema' passa direto, sem cooldown nem chatAberto (não
+    // é mensagem de jogador — ver montarMensagemChat).
+    const avisoSistema = (nome, texto) => {
+        io.to(salaId).emit(EventosServidor.CHAT_MENSAGEM, { salaId, tipo: 'sistema', jogador: nome, id: null, texto });
+    };
+    controller.on('jogadorEntrou', ({ nome }) => avisoSistema(nome, 'entrou na sala'));
+    controller.on('jogadorSaiu', ({ nome }) => avisoSistema(nome, 'saiu da sala'));
 
     controller.on('cartasDistribuidas', (maos) => {
         for (const { id, mao } of maos) {

@@ -35,10 +35,11 @@ class Partida:
     # `hp_inicial` é configurável pra dar cobertura de treino a diferentes
     # situações de hp (ver discussão sobre variar hp pra melhorar o fim de jogo).
     def __init__(self, number_players=4, round_start=3, random_shuffle=True, hp_inicial=3,
-                 max_deck=MAX_DECK_SEM_LIMITE,
+                 max_deck=MAX_DECK_SEM_LIMITE, seed=None,
                  on_nova_rodada=None, on_rodada_finalizada=None, on_jogo_finalizado=None):
         self.jogadores = [PlayerGame(i, f"agente{i}", hp=hp_inicial) for i in range(number_players)]
-        self.jogo = Jogo(number_players, round_start, random_shuffle, self.jogadores, max_deck=max_deck)
+        self.jogo = Jogo(number_players, round_start, random_shuffle, self.jogadores,
+                         max_deck=max_deck, seed=seed)
         self.rodada = None
         self.numero_rodada = 0
         self.finalizada = False
@@ -79,9 +80,20 @@ class Partida:
         self.jogo.set_start_sequence()
         self.numero_rodada = 1
         self.rodada = self.jogo.nova_rodada()
-        yield from self._jogar_rodada_atual()
+        yield from self._rodar_partida()
 
-    def _jogar_rodada_atual(self):
+    # Loop da partida: uma rodada por volta até alguém vencer. Antes era
+    # recursão mútua (_jogar_rodada_atual -> _avancar_ou_finalizar ->
+    # _jogar_rodada_atual, via `yield from`), que empilhava um frame por rodada
+    # até o fim -- mesmo motivo do refactor no game/GameController.js.
+    def _rodar_partida(self):
+        while True:
+            yield from self._jogar_uma_rodada()
+            if self._resolver_fim_de_jogo():
+                return
+            self._avancar_para_proxima_rodada()
+
+    def _jogar_uma_rodada(self):
         rodada = self.rodada
         if self._on_nova_rodada:
             self._on_nova_rodada(self.numero_rodada, rodada.round)
@@ -108,28 +120,33 @@ class Partida:
                 {"jogador": j, "aposta": j.aposta, "steak": j.steak, "diferenca": abs(j.aposta - j.steak), "hp": j.hp}
                 for j in rodada.game_order
             ])
-        yield from self._avancar_ou_finalizar()
 
-    def _avancar_ou_finalizar(self):
+    # Fim de jogo? Devolve True (e seta finalizada/vencedor) quando só sobra um
+    # vivo (hp > 0). Se TODOS morrerem na mesma rodada, vence quem ficou com o
+    # hp mais perto de 0 (perdeu menos vida). Empate nesse hp: vence quem
+    # chegou nele primeiro = quem finalizar_rodada processou antes (ordem de
+    # rodada.game_order). Provisório, igual ao game/GameController.js. Devolve
+    # False quando a partida continua.
+    def _resolver_fim_de_jogo(self):
         vivos = [j for j in self.jogo.game_order if j.hp > 0]
         if len(vivos) == 1:
             self.finalizada = True
             self.vencedor = vivos[0]
             if self._on_jogo_finalizado:
                 self._on_jogo_finalizado(self.vencedor)
-            return
+            return True
         if len(vivos) == 0:
-            # Todos zeraram hp na mesma rodada: desempate por menor
-            # diferença entre aposta e steak na última rodada.
-            self.vencedor = min(self.rodada.game_order, key=lambda j: abs(j.aposta - j.steak))
+            # max() devolve o primeiro que atinge o maior hp -> empate fica com
+            # quem vem antes em game_order (mesma ordem de finalizar_rodada).
+            self.vencedor = max(self.rodada.game_order, key=lambda j: j.hp)
             self.finalizada = True
             if self._on_jogo_finalizado:
                 self._on_jogo_finalizado(self.vencedor)
-            return
+            return True
+        return False
 
+    def _avancar_para_proxima_rodada(self):
         self.rodada.resetar_apostas_steaks()
         self.jogo.girar_ordem()
-
         self.numero_rodada += 1
         self.rodada = self.jogo.proxima_rodada()
-        yield from self._jogar_rodada_atual()
