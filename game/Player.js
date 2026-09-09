@@ -1,10 +1,10 @@
 // Player.js
 export class Player {
-    constructor(nome, senha) {
+    constructor(nome, senha, rate = 0) {
         this._id = -1; // Id padrão
         this._nome = nome;
         this._senha = senha;
-        this._rate = 0;
+        this._rate = rate;
         // true só pra instâncias de bots/Bot.js — jogador de verdade nunca
         // muda isso. Ver PlayerGame.bot pra como isso afeta a partida.
         this._bot = false;

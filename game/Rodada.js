@@ -8,6 +8,10 @@ export class Rodada {
         this.gameOrder = gameSettings.gameOrder;
         this.round = gameSettings.round;
         this.randomShuffle = gameSettings.randomShuffle;
+        // Mesmo rng do Game (ver Game.rng / rng.js): sem seed é Math.random;
+        // com seed é o PRNG determinístico. undefined em quem constrói Rodada
+        // sem Game (nenhum caminho hoje) → Baralho cai no default Math.random.
+        this.rng = gameSettings.rng;
 
         // jogadores vivos * cartas por mao + 1 pra vira. numCards e o total
         // exato consumido na rodada (darCartas + virarManilha).
@@ -29,7 +33,7 @@ export class Rodada {
             );
         }
 
-        this.baralho = new Baralho(this.numBaralho, this.randomShuffle);
+        this.baralho = new Baralho(this.numBaralho, this.randomShuffle, this.rng);
 
         this.vira = null;
         this.viraValor = -1;

@@ -1,4 +1,5 @@
 import { Rodada } from './Rodada.js';
+import { criarRng, embaralharComRng } from './rng.js';
 
 // Teto de baralhos tratado como "Sem Limite": 50 baralhos = 2000 cartas, mais
 // do que qualquer partida real alcança (a mão cresce +1 por rodada e alguém
@@ -18,6 +19,12 @@ export class Game {
         // rodada. Enquanto a próxima rodada (mão maior) não couber nesse
         // teto, `round` não cresce — ver proximaRodada().
         this.maxDeck = settings.maxDeck ?? MAX_DECK_SEM_LIMITE;
+        // Sem seed: Math.random de sempre. Com seed (inteiro): PRNG
+        // determinístico compartilhado com o baralho — mesma seed reproduz a
+        // partida inteira (ver rng.js). O mesmo rng vai pra cada Rodada ->
+        // Baralho, então uma única sequência governa ordem de assento E
+        // embaralhamento de cartas.
+        this.rng = criarRng(settings.seed);
 
         this.round = settings.roundStart;
         this.gameOrder = [];
@@ -35,12 +42,7 @@ export class Game {
     // muda adjacência num ciclo). Fisher-Yates aqui garante que a ordem de
     // turno não tem nenhuma relação com a ordem que os jogadores entraram.
     setstartsequence() {
-        this.gameOrder = [...this.jogadores];
-        for (let i = this.gameOrder.length - 1; i > 0; i--) {
-            const j = Math.floor(Math.random() * (i + 1));
-            [this.gameOrder[i], this.gameOrder[j]] = [this.gameOrder[j], this.gameOrder[i]];
-        }
-
+        this.gameOrder = embaralharComRng([...this.jogadores], this.rng);
         this.ordemOriginal = [...this.gameOrder];
         this.starterIndex = 0;
     }

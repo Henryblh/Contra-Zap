@@ -6,6 +6,7 @@
 import math
 import random
 
+from .rng import criar_rng, embaralhar_com_rng
 from .rodada import Rodada
 
 # Teto de baralhos tratado como "Sem Limite" (game/Game.js: MAX_DECK_SEM_LIMITE).
@@ -19,7 +20,7 @@ def baralhos_necessarios(num_jogadores, round_):
 
 class Jogo:
     def __init__(self, number_players, round_start, random_shuffle, jogadores,
-                 max_deck=MAX_DECK_SEM_LIMITE):
+                 max_deck=MAX_DECK_SEM_LIMITE, seed=None):
         self.number_players = number_players
         self.round_start = round_start
         self.random_shuffle = random_shuffle
@@ -28,6 +29,12 @@ class Jogo:
         # rodada (mão maior) não couber, `round` não cresce -- ver
         # proxima_rodada().
         self.max_deck = max_deck
+        # seed None => embaralhamento com o `random` global (comportamento
+        # historico). Um inteiro => PRNG deterministico compartilhado com o
+        # baralho, o mesmo de game/rng.js (ver rng.py). None vira rng=None e o
+        # Baralho cai no random.shuffle de sempre.
+        self.seed = seed
+        self._rng = None if seed is None else criar_rng(seed)
         self.round = round_start
         self.game_order = []
         self.ordem_original = []
@@ -35,7 +42,10 @@ class Jogo:
 
     def set_start_sequence(self):
         self.game_order = list(self.jogadores)
-        random.shuffle(self.game_order)
+        if self._rng is None:
+            random.shuffle(self.game_order)
+        else:
+            embaralhar_com_rng(self.game_order, self._rng)
         self.ordem_original = list(self.game_order)
         self.starter_index = 0
 
@@ -61,7 +71,7 @@ class Jogo:
         ]
 
     def nova_rodada(self):
-        return Rodada(self.game_order, self.round, self.random_shuffle)
+        return Rodada(self.game_order, self.round, self.random_shuffle, self._rng)
 
     def proxima_rodada(self):
         # A mão cresce +1 por rodada, mas só se a próxima rodada ainda couber

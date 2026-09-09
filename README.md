@@ -267,9 +267,6 @@ Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
 
 ### 2. Motor de jogo (`game/`)
 18. 🟢 Desempate `vivos.length === 0` por menor `|aposta-steak|`; empate nisso → primeiro de `gameOrder`, arbitrário. `GameController.js`
-20. 🟡 `_avancarOuFinalizar` → `await _jogarRodadaAtual()` é recursão sem desenrolar pilha. Trocar por loop. `GameController.js`
-21. 🟡 `setstartsequence()`/`embaralharArray()` usam `Math.random()` não-semeável → impossível reproduzir uma partida. `Game.js`, `Baralho.js`
-22. 🟡 `PlayerGame` faz `super(nome, senha, rate)` mas `Player` só aceita 2 args → `rate` descartado; assento carrega senha dentro do motor. `PlayerGame.js`
 23. 🟢 `PlayerGame.jogarCarta(carta){ return carta; }` — método morto. `PlayerGame.js`
 24. 🟢 `Carta.js`: comentários "Faltava o return!" sobrando + getter/setter redundante por campo.
 25. 🟢 `GameController` emite `jogadorEntrou`/`jogadorSaiu` que ninguém retransmite. `GameController.js`

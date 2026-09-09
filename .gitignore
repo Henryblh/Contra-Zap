@@ -49,4 +49,9 @@ __pycache__/
 /conexao/cadastro.test.js
 /conexao/cleanup.test.js
 /game/maxDeck.test.js
+/game/loopPartida.test.js
+/game/seed.test.js
+/game/playerGame.test.js
 /training/python/test_motor_maxdeck.py
+/training/python/test_motor_loop.py
+/training/python/test_seed.py

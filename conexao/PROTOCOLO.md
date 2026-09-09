@@ -155,8 +155,8 @@ cliente reage do mesmo jeito aos três: descarta a sessão salva e volta pro
 login normal).
 
 ### `criarSala`
-Payload: `{ numberPlayers?: number, roundStart?: number, randomShuffle?: boolean, maxDeck?: number, botNumber?: number, chatAberto?: boolean }`
-(todos opcionais — default vem do `SalaManager`: 4 / 3 / true / 50 / 0 / false)
+Payload: `{ numberPlayers?: number, roundStart?: number, randomShuffle?: boolean, maxDeck?: number, seed?: number, botNumber?: number, chatAberto?: boolean }`
+(todos opcionais — default vem do `SalaManager`: 4 / 3 / true / 50 / — / 0 / false)
 `numberPlayers` precisa ser inteiro entre 2 e 6; `roundStart` inteiro entre
 1 e 10 (o teto evita montar milhares de baralhos e estourar a memória);
 `maxDeck` inteiro entre 1 e 50 — máximo de baralhos de 40 cartas que a
@@ -164,7 +164,11 @@ partida monta numa rodada. Enquanto a próxima rodada (mão maior) não couber
 nesse teto, a mão para de crescer; volta a crescer quando alguém morre e
 libera cartas na mesa. 50 é o topo e vale "Sem Limite" (2000 cartas,
 inalcançável). Se `roundStart` com a mesa cheia já não couber em `maxDeck`,
-`CONFIGURACAO_INVALIDA`. `botNumber` inteiro entre 0 e `numberPlayers - 1`
+`CONFIGURACAO_INVALIDA`. `seed` (opcional) é a semente do embaralhamento —
+inteiro não-negativo; ausente = aleatório de sempre. Com ela a partida fica
+reproduzível carta por carta (mesma seed = mesma mesa) e o resultado bate com
+o motor Python (`training/python/motor/`). Não é herdada por "jogar de novo".
+`botNumber` inteiro entre 0 e `numberPlayers - 1`
 (sempre sobra pelo menos o assento de quem criou); `chatAberto` e
 `randomShuffle`, se vierem, precisam ser boolean — fora disso,
 `CONFIGURACAO_INVALIDA`. `chatAberto` libera o chat de texto livre da sala
@@ -634,7 +638,7 @@ igual na sala de espera e na partida.
 | `CONVIDADO_INVALIDO` | `entrarComoConvidado` com nome menor que 3 caracteres |
 | `TOKEN_INVALIDO` | `retomarSessao` com token que não bate a assinatura, expirou, ou veio ausente/malformado |
 | `NOME_INVALIDO` | `entrarSala` com nome já em uso *nessa sala* |
-| `CONFIGURACAO_INVALIDA` | `criarSala` com `numberPlayers`/`roundStart`/`maxDeck`/`botNumber` fora do intervalo aceito (`roundStart` 1 a 10, `maxDeck` 1 a 50), `roundStart` que não cabe em `maxDeck` baralhos com a mesa cheia, ou `chatAberto`/`randomShuffle` que não é boolean |
+| `CONFIGURACAO_INVALIDA` | `criarSala` com `numberPlayers`/`roundStart`/`maxDeck`/`botNumber` fora do intervalo aceito (`roundStart` 1 a 10, `maxDeck` 1 a 50), `roundStart` que não cabe em `maxDeck` baralhos com a mesa cheia, `seed` que não é inteiro não-negativo, ou `chatAberto`/`randomShuffle` que não é boolean |
 | `LIMITE_DE_SALAS` | `criarSala`/`partidaRapida` com o teto global de salas simultâneas já atingido — barreira de sanidade, tenta de novo mais tarde |
 | `SALA_NAO_ENCONTRADA` | `entrarSala`/`forcarInicio`/`sairSala`/`jogarCarta`/`reconectar` com `salaId` que não existe |
 | `SALA_CHEIA` | `entrarSala` numa sala que já tem `numberPlayers` jogadores |

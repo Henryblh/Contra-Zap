@@ -3,7 +3,12 @@ import { Player } from './Player.js';
 
 export class PlayerGame extends Player {
     constructor(playerBase) {
-        super(playerBase.nome, playerBase.senha, playerBase.rate);
+        // O motor não guarda credencial nem ranking: senha é conceito de
+        // conta/conexão (o assento dentro de game/ não tem o que fazer com
+        // ela) e rate/ranking ainda não é usado em lugar nenhum. Passa null e
+        // 0 de propósito — mesmo recorte do PlayerGame do motor Python
+        // (training/python/motor/partida.py), que nem carrega esses campos.
+        super(playerBase.nome, null, 0);
         this.id = playerBase.id;
         this.bot = playerBase.bot;
         // Fixo pro resto da vida deste PlayerGame, ao contrário de `bot`

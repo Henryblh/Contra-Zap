@@ -46,7 +46,7 @@ function baralhosNecessarios(numberPlayers, round) {
     return Math.ceil((numberPlayers * round + 1) / 40);
 }
 
-function validarConfig({ numberPlayers, roundStart, botNumber, chatAberto, randomShuffle, maxDeck }) {
+function validarConfig({ numberPlayers, roundStart, botNumber, chatAberto, randomShuffle, maxDeck, seed }) {
     if (!Number.isInteger(numberPlayers) || numberPlayers < NUMERO_JOGADORES_MIN || numberPlayers > NUMERO_JOGADORES_MAX) {
         throw new ErroSala(
             CodigosErro.CONFIGURACAO_INVALIDA,
@@ -89,6 +89,11 @@ function validarConfig({ numberPlayers, roundStart, botNumber, chatAberto, rando
     }
     if (typeof randomShuffle !== 'boolean') {
         throw new ErroSala(CodigosErro.CONFIGURACAO_INVALIDA, 'randomShuffle deve ser true ou false.');
+    }
+    // seed é opcional (ausente = Math.random de sempre). Quando vem, tem que
+    // ser um inteiro não-negativo — vira estado de PRNG (ver game/rng.js).
+    if (seed !== undefined && (!Number.isInteger(seed) || seed < 0)) {
+        throw new ErroSala(CodigosErro.CONFIGURACAO_INVALIDA, 'seed, se informada, deve ser um número inteiro não-negativo.');
     }
 }
 
@@ -188,7 +193,11 @@ export class SalaManager {
         const chatAberto = config.chatAberto ?? false;
         const randomShuffle = config.randomShuffle ?? true;
         const maxDeck = config.maxDeck ?? MAX_DECK_SEM_LIMITE;
-        validarConfig({ numberPlayers, roundStart, botNumber, chatAberto, randomShuffle, maxDeck });
+        // Ausente = Math.random de sempre. Não entra na configOriginal de
+        // propósito: "jogar de novo" deve ser uma partida nova, não a repetição
+        // carta-por-carta da anterior.
+        const seed = config.seed;
+        validarConfig({ numberPlayers, roundStart, botNumber, chatAberto, randomShuffle, maxDeck, seed });
 
         const salaId = this._gerarSalaId();
         const sala = new Sala(salaId, {
@@ -196,6 +205,7 @@ export class SalaManager {
             roundStart,
             randomShuffle,
             maxDeck,
+            seed,
             botNumber,
             chatAberto,
             tempoTurnoMs: this.tempoTurnoMs,

@@ -19,7 +19,7 @@ import { escolherCarta, escolherAposta } from '../bots/BotBrain.js';
 const ATRASO_BOT_MS_SALA_ABANDONADA = 50;
 
 export class GameController extends EventEmitter {
-    constructor({ numberPlayers, roundStart, randomShuffle, maxDeck, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs, tempoReservaMs } = {}) {
+    constructor({ numberPlayers, roundStart, randomShuffle, maxDeck, seed, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs, tempoReservaMs } = {}) {
         super();
         this.numberPlayers = numberPlayers || 4;
         this.roundStart = roundStart || 3;
@@ -28,6 +28,9 @@ export class GameController extends EventEmitter {
         // config = "Sem Limite" (MAX_DECK_SEM_LIMITE). A validação de que
         // roundStart cabe nesse teto é da camada de sala (SalaManager).
         this.maxDeck = maxDeck ?? MAX_DECK_SEM_LIMITE;
+        // Seed opcional pro embaralhamento (ver game/rng.js). undefined =
+        // Math.random de sempre; um inteiro torna a partida reproduzível.
+        this.seed = seed;
         // Quanto tempo esperar a jogada real antes de cair pro automático
         // (ver _aguardarJogadaOuTimeout). Campo público de propósito — dá
         // pra ajustar por sala (ex.: testes usam um valor bem menor).
@@ -54,7 +57,7 @@ export class GameController extends EventEmitter {
         this.numeroRodada = 0;
         // Cartas (valorInt*4+naipeInt) ja jogadas na rodada atual — memoria
         // que bots/BotBrain.js usa na observacao da rede. Zerada a cada
-        // rodada nova em _jogarRodadaAtual; so BotBrain le.
+        // rodada nova em _jogarUmaRodada; so BotBrain le.
         this._cartasJogadasRodada = new Set();
         this._timerInicio = null;
         // segundos passados pro último agendarInicio — só pra quem chega
@@ -64,7 +67,7 @@ export class GameController extends EventEmitter {
         this._segundosParaIniciar = null;
         this._jogadaEsperada = null;
         this._apostaEsperada = null;
-        // true só depois que jogoFinalizado dispara (ver _avancarOuFinalizar)
+        // true só depois que jogoFinalizado dispara (ver _resolverFimDeJogo)
         // — diferente de `game !== null` (que já é true desde o início da
         // partida), é o que permite distinguir "partida em andamento" de
         // "partida acabou" de fora (ver SalaManager.jogarDeNovo).
@@ -166,6 +169,7 @@ export class GameController extends EventEmitter {
             roundStart: this.roundStart,
             randomShuffle: this.randomShuffle,
             maxDeck: this.maxDeck,
+            seed: this.seed,
             jogadores: [...this.jogadores],
         });
         this.game.setstartsequence();
@@ -191,7 +195,7 @@ export class GameController extends EventEmitter {
         // rejection e derrubar o processo — mas, diferente de antes, não
         // engole em silêncio: aborta a partida e avisa a sala (ver
         // _abortarPartida).
-        this._jogarRodadaAtual().catch(erro => this._abortarPartida(erro));
+        this._rodarPartida().catch(erro => this._abortarPartida(erro));
         return this;
     }
 
@@ -233,7 +237,7 @@ export class GameController extends EventEmitter {
     // de reserva disparando `_expirarVaga` num objeto solto. Depois daqui o
     // controller não emite mais nada e o loop, se estiver no ar, desenrola no
     // próximo ponto de re-entrada (ver o guard de _encerrado em
-    // _jogarRodadaAtual/_avancarOuFinalizar).
+    // _rodarPartida/_jogarUmaRodada).
     destruir() {
         this._encerrado = true;
         this._limparTimers();
@@ -436,7 +440,7 @@ export class GameController extends EventEmitter {
     // Chamado de fora (via protocolo) quando um jogador manda a carta que
     // quer jogar. `indice` é a posição na mão dele (0-based). Devolve
     // { ok: true } se aceita — e só então o índice é consumido e a espera
-    // em _jogarRodadaAtual é liberada — ou { ok: false, motivo } se não for
+    // em _jogarUmaRodada é liberada — ou { ok: false, motivo } se não for
     // a vez desse jogador ou o índice não existir na mão dele; nesses casos
     // nada muda e a espera continua de pé.
     jogarCarta(playerId, indice) {
@@ -482,7 +486,7 @@ export class GameController extends EventEmitter {
     }
 
     // true só pro último jogador a apostar na rodada (ordem de
-    // rodada.gameOrder, a mesma em que _jogarRodadaAtual pede as apostas) —
+    // rodada.gameOrder, a mesma em que _jogarUmaRodada pede as apostas) —
     // é o único cuja aposta fecha (ou não) a soma de todo mundo, porque
     // todos os outros já apostaram quando chega a vez dele.
     _ehUltimoAApostar(jogador) {
@@ -636,7 +640,26 @@ export class GameController extends EventEmitter {
         return true;
     }
 
-    async _jogarRodadaAtual() {
+    // Loop da partida: uma rodada por volta, até alguém vencer (ou a sala ser
+    // removida, ver destruir/_encerrado). Antes isto era recursão mútua
+    // (_jogarRodadaAtual -> _avancarOuFinalizar -> _jogarRodadaAtual): cada
+    // rodada empilhava um frame que só desenrolava no fim da partida, então
+    // memória e profundidade de pilha cresciam com o nº de rodadas. Agora é um
+    // while raso — um frame pra partida inteira.
+    async _rodarPartida() {
+        while (!this._encerrado) {
+            await this._jogarUmaRodada();
+            if (this._encerrado) return;      // sala removida no meio da rodada
+            if (this._resolverFimDeJogo()) return; // emitiu jogoFinalizado
+            this._avancarParaProximaRodada();
+        }
+    }
+
+    // Joga a rodada atual de ponta a ponta: distribui, vira manilha, colhe as
+    // apostas em ordem, roda todas as vazas e fecha a rodada (perda de hp +
+    // rodadaFinalizada). Não decide fim de jogo nem monta a próxima — isso é
+    // do _rodarPartida.
+    async _jogarUmaRodada() {
         if (this._encerrado) return; // sala removida no meio da partida (ver destruir)
         const rodada = this.rodada;
 
@@ -704,30 +727,35 @@ export class GameController extends EventEmitter {
                 hp: j.hp
             }))
         });
-
-        await this._avancarOuFinalizar();
     }
 
-    async _avancarOuFinalizar() {
-        if (this._encerrado) return; // sala removida no meio da partida (ver destruir)
+    // Fim de jogo? Devolve true (e emite jogoFinalizado) quando só sobra um
+    // vivo — ou nenhum, se todos zeraram o hp na mesma rodada, caso em que o
+    // desempate é a menor diferença |aposta - steak| na última rodada. Devolve
+    // false quando a partida continua.
+    _resolverFimDeJogo() {
         const vivos = this.game.gameOrder.filter(j => j.hp > 0);
         if (vivos.length === 1) {
             this._finalizada = true;
             this.emit('jogoFinalizado', { vencedor: vivos[0].nome });
-            return;
+            return true;
         }
         if (vivos.length === 0) {
-            // Todos os jogadores que disputavam a mesa zeraram o hp na mesma rodada.
-            // Desempate: vence quem teve a menor diferença entre aposta e steak na última rodada.
             const vencedor = this.rodada.gameOrder.reduce((melhor, jogador) => {
                 const diferenca = Math.abs(jogador.aposta - jogador.steak);
                 return diferenca < melhor.diferenca ? { jogador, diferenca } : melhor;
             }, { jogador: this.rodada.gameOrder[0], diferenca: Math.abs(this.rodada.gameOrder[0].aposta - this.rodada.gameOrder[0].steak) });
             this._finalizada = true;
             this.emit('jogoFinalizado', { vencedor: vencedor.jogador.nome });
-            return;
+            return true;
         }
+        return false;
+    }
 
+    // Prepara a próxima rodada: tira os eliminados, zera aposta/steak, gira a
+    // ordem, incrementa o contador e monta a Rodada nova (respeitando maxDeck,
+    // ver Game.proximaRodada).
+    _avancarParaProximaRodada() {
         const eliminados = this.game.eliminarZerados();
         if (eliminados.length > 0) {
             this.emit('jogadoresEliminados', { eliminados: eliminados.map(j => ({ nome: j.nome, hp: j.hp })) });
@@ -738,7 +766,5 @@ export class GameController extends EventEmitter {
         this.numeroRodada++;
         this.rodada = this.game.proximaRodada();
         this.emit('novaRodadaIniciada', { numero: this.numeroRodada, cartas: this.rodada.round });
-
-        await this._jogarRodadaAtual();
     }
 }
