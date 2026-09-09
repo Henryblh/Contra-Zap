@@ -51,3 +51,5 @@ __pycache__/
 /conexao/socketServer.test.js
 /conexao/jwt.test.js
 /conexao/cadastro.test.js
+/game/maxDeck.test.js
+/training/python/test_motor_maxdeck.py

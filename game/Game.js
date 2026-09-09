@@ -1,5 +1,12 @@
 import { Rodada } from './Rodada.js';
 
+// Teto de baralhos tratado como "Sem Limite": 50 baralhos = 2000 cartas, mais
+// do que qualquer partida real alcança (a mão cresce +1 por rodada e alguém
+// morre muito antes disso). Usado como default quando maxDeck não vem na
+// config — assim o caminho "sem limite" é só um número grande, sem caso
+// especial de Infinity/null pra serializar por socket.
+export const MAX_DECK_SEM_LIMITE = 50;
+
 export class Game {
     constructor(settings) {
         // Apenas copiamos os valores do Lobby (que chegaram pela variável settings)
@@ -7,6 +14,10 @@ export class Game {
         this.roundStart = settings.roundStart;
         this.randomShuffle = settings.randomShuffle;
         this.jogadores = settings.jogadores;
+        // Máximo de baralhos de 40 cartas que a partida pode montar numa
+        // rodada. Enquanto a próxima rodada (mão maior) não couber nesse
+        // teto, `round` não cresce — ver proximaRodada().
+        this.maxDeck = settings.maxDeck ?? MAX_DECK_SEM_LIMITE;
 
         this.round = settings.roundStart;
         this.gameOrder = [];
@@ -42,11 +53,23 @@ export class Game {
         return this.gameOrder.filter(jogador => jogador.hp <= 0);
     }
 
-    // Gira quem começa: sempre um a mais que o início da ordem original,
-    // pulando quem já foi eliminado
+    // Gira quem começa: o próximo jogador VIVO depois de quem abriu a rodada
+    // anterior, na ordem original.
+    //
+    // ordemOriginal nunca encolhe (os mortos seguem ocupando slot). Se o
+    // avanço fosse só (starterIndex + 1) % n, quando esse slot caísse num
+    // jogador morto o próximo vivo virava o abridor — e na rodada seguinte o
+    // +1 caía em cima dele de novo, fazendo o mesmo jogador abrir duas
+    // rodadas seguidas. Por isso: anda pelo menos 1 e continua pulando slots
+    // de mortos até parar num vivo (limitado a n passos, nunca trava; o caso
+    // "só sobrou 1 vivo" nem chega aqui — GameController encerra antes).
     girarOrdem() {
         const n = this.ordemOriginal.length;
-        this.starterIndex = (this.starterIndex + 1) % n;
+
+        for (let passos = 0; passos < n; passos++) {
+            this.starterIndex = (this.starterIndex + 1) % n;
+            if (this.ordemOriginal[this.starterIndex].hp > 0) break;
+        }
 
         const novaOrdem = [];
         for (let i = 0; i < n; i++) {
@@ -56,9 +79,24 @@ export class Game {
         this.gameOrder = novaOrdem;
     }
 
-    // Fecha a rodada atual e prepara a próxima: mais uma carta por jogador
+    // Quantos baralhos de 40 cartas uma rodada com `numJogadores` vivos e mão
+    // de `round` cartas precisaria montar. numCards = jogadores*round + 1 (o
+    // +1 é a vira), ver Rodada.
+    static baralhosNecessarios(numJogadores, round) {
+        return Math.ceil((numJogadores * round + 1) / 40);
+    }
+
+    // Fecha a rodada atual e prepara a próxima. A mão normalmente cresce +1
+    // carta por rodada — mas só se a próxima rodada ainda couber em maxDeck
+    // baralhos. Se não couber, `round` fica congelado no valor atual (a mão
+    // não cresce) até alguém morrer: menos jogadores = menos cartas na mesa =
+    // volta a caber, e aí o +1 é retomado. Nunca diminui, nunca "pula" pra
+    // recuperar rodadas em que ficou parado.
     proximaRodada() {
-        this.round += 1;
+        const vivos = this.gameOrder.length; // já filtrado por girarOrdem()
+        if (Game.baralhosNecessarios(vivos, this.round + 1) <= this.maxDeck) {
+            this.round += 1;
+        }
         return this.newRodada();
     }
 

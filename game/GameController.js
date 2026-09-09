@@ -7,7 +7,7 @@
 //  - Main.js: assina os eventos e imprime no console (harness de teste local)
 //  - Server.js (futuro): assina os eventos e faz io.emit(...) para os clientes via socket.io
 import { EventEmitter } from 'node:events';
-import { Game } from './Game.js';
+import { Game, MAX_DECK_SEM_LIMITE } from './Game.js';
 import { PlayerGame } from './PlayerGame.js';
 import { escolherCarta, escolherAposta } from '../bots/BotBrain.js';
 
@@ -19,11 +19,15 @@ import { escolherCarta, escolherAposta } from '../bots/BotBrain.js';
 const ATRASO_BOT_MS_SALA_ABANDONADA = 50;
 
 export class GameController extends EventEmitter {
-    constructor({ numberPlayers, roundStart, randomShuffle, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs, tempoReservaMs } = {}) {
+    constructor({ numberPlayers, roundStart, randomShuffle, maxDeck, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs, tempoReservaMs } = {}) {
         super();
         this.numberPlayers = numberPlayers || 4;
         this.roundStart = roundStart || 3;
         this.randomShuffle = randomShuffle;
+        // Máximo de baralhos por rodada (ver Game.proximaRodada). Sem valor na
+        // config = "Sem Limite" (MAX_DECK_SEM_LIMITE). A validação de que
+        // roundStart cabe nesse teto é da camada de sala (SalaManager).
+        this.maxDeck = maxDeck ?? MAX_DECK_SEM_LIMITE;
         // Quanto tempo esperar a jogada real antes de cair pro automático
         // (ver _aguardarJogadaOuTimeout). Campo público de propósito — dá
         // pra ajustar por sala (ex.: testes usam um valor bem menor).
@@ -156,6 +160,7 @@ export class GameController extends EventEmitter {
             numberPlayers: this.numberPlayers,
             roundStart: this.roundStart,
             randomShuffle: this.randomShuffle,
+            maxDeck: this.maxDeck,
             jogadores: [...this.jogadores],
         });
         this.game.setstartsequence();

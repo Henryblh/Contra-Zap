@@ -301,9 +301,7 @@ Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
 13. 🟡 Sem HTTPS/wss (item de "produção").
 
 ### 2. Motor de jogo (`game/`)
-17. 🟡 Sem limite de duração de partida / sem empate técnico — vazas meladas podem não tirar hp de ninguém e a rodada cresce indefinidamente. `GameController.js`
 18. 🟢 Desempate `vivos.length === 0` por menor `|aposta-steak|`; empate nisso → primeiro de `gameOrder`, arbitrário. `GameController.js`
-19. 🟡 `Game.girarOrdem()` avança `starterIndex` sobre `ordemOriginal` (nunca encolhe) → mesmo jogador pode abrir duas rodadas seguidas. Verificar se é desejado. `Game.js`
 20. 🟡 `_avancarOuFinalizar` → `await _jogarRodadaAtual()` é recursão sem desenrolar pilha. Trocar por loop. `GameController.js`
 21. 🟡 `setstartsequence()`/`embaralharArray()` usam `Math.random()` não-semeável → impossível reproduzir uma partida. `Game.js`, `Baralho.js`
 22. 🟡 `PlayerGame` faz `super(nome, senha, rate)` mas `Player` só aceita 2 args → `rate` descartado; assento carrega senha dentro do motor. `PlayerGame.js`

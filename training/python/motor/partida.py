@@ -13,7 +13,7 @@
 # isso é responsabilidade de quem consome o generator (o harness de treino),
 # igual training/env_bridge.js hoje não reimplementa regra nenhuma, só fala
 # com o GameController de verdade.
-from .jogo import Jogo
+from .jogo import Jogo, MAX_DECK_SEM_LIMITE
 
 
 class PlayerGame:
@@ -35,9 +35,10 @@ class Partida:
     # `hp_inicial` é configurável pra dar cobertura de treino a diferentes
     # situações de hp (ver discussão sobre variar hp pra melhorar o fim de jogo).
     def __init__(self, number_players=4, round_start=3, random_shuffle=True, hp_inicial=3,
+                 max_deck=MAX_DECK_SEM_LIMITE,
                  on_nova_rodada=None, on_rodada_finalizada=None, on_jogo_finalizado=None):
         self.jogadores = [PlayerGame(i, f"agente{i}", hp=hp_inicial) for i in range(number_players)]
-        self.jogo = Jogo(number_players, round_start, random_shuffle, self.jogadores)
+        self.jogo = Jogo(number_players, round_start, random_shuffle, self.jogadores, max_deck=max_deck)
         self.rodada = None
         self.numero_rodada = 0
         self.finalizada = False

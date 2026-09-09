@@ -28,9 +28,20 @@ const NUMERO_JOGADORES_MAX = 6;
 // cresce +1 carta por vez e a partida costuma acabar em poucas rodadas (ver
 // game/GameController.js).
 const ROUND_START_MAX = 10;
+// maxDeck: teto de baralhos de 40 cartas que a partida pode montar numa
+// rodada (ver game/Game.js -> proximaRodada). MIN 1; o topo é tratado como
+// "Sem Limite" (50 baralhos = 2000 cartas, inalcançável numa partida real).
+const MAX_DECK_MIN = 1;
+const MAX_DECK_SEM_LIMITE = 50;
 const TEMPO_ESPERA_INICIO_MS_PADRAO = 15_000;
 
-function validarConfig({ numberPlayers, roundStart, botNumber, chatAberto, randomShuffle }) {
+// Quantos baralhos uma rodada com `numberPlayers` e mão de `round` cartas
+// precisa — mesma conta de game/Game.js (numCards = jogadores*round + 1).
+function baralhosNecessarios(numberPlayers, round) {
+    return Math.ceil((numberPlayers * round + 1) / 40);
+}
+
+function validarConfig({ numberPlayers, roundStart, botNumber, chatAberto, randomShuffle, maxDeck }) {
     if (!Number.isInteger(numberPlayers) || numberPlayers < NUMERO_JOGADORES_MIN || numberPlayers > NUMERO_JOGADORES_MAX) {
         throw new ErroSala(
             CodigosErro.CONFIGURACAO_INVALIDA,
@@ -41,6 +52,22 @@ function validarConfig({ numberPlayers, roundStart, botNumber, chatAberto, rando
         throw new ErroSala(
             CodigosErro.CONFIGURACAO_INVALIDA,
             `roundStart deve ser um número inteiro entre 1 e ${ROUND_START_MAX}.`
+        );
+    }
+    if (!Number.isInteger(maxDeck) || maxDeck < MAX_DECK_MIN || maxDeck > MAX_DECK_SEM_LIMITE) {
+        throw new ErroSala(
+            CodigosErro.CONFIGURACAO_INVALIDA,
+            `maxDeck deve ser um número inteiro entre ${MAX_DECK_MIN} e ${MAX_DECK_SEM_LIMITE}.`
+        );
+    }
+    // A primeira rodada (mesa cheia) já tem que caber em maxDeck baralhos —
+    // depois disso a mão só cresce, então se nem a inicial cabe a partida
+    // nunca sairia do lugar. Só morde quando maxDeck é baixo E roundStart alto.
+    const baralhosPrimeiraRodada = baralhosNecessarios(numberPlayers, roundStart);
+    if (baralhosPrimeiraRodada > maxDeck) {
+        throw new ErroSala(
+            CodigosErro.CONFIGURACAO_INVALIDA,
+            `roundStart ${roundStart} com ${numberPlayers} jogadores precisa de ${baralhosPrimeiraRodada} baralhos, acima do maxDeck ${maxDeck}.`
         );
     }
     // <= numberPlayers - 1 pra sempre sobrar pelo menos o assento de quem
@@ -81,6 +108,7 @@ class Sala {
             numberPlayers: config.numberPlayers,
             roundStart: config.roundStart,
             randomShuffle: config.randomShuffle,
+            maxDeck: config.maxDeck,
             botNumber: config.botNumber ?? 0,
             chatAberto: this.chatAberto,
         };
@@ -148,13 +176,15 @@ export class SalaManager {
         const botNumber = config.botNumber ?? 0;
         const chatAberto = config.chatAberto ?? false;
         const randomShuffle = config.randomShuffle ?? true;
-        validarConfig({ numberPlayers, roundStart, botNumber, chatAberto, randomShuffle });
+        const maxDeck = config.maxDeck ?? MAX_DECK_SEM_LIMITE;
+        validarConfig({ numberPlayers, roundStart, botNumber, chatAberto, randomShuffle, maxDeck });
 
         const salaId = this._gerarSalaId();
         const sala = new Sala(salaId, {
             numberPlayers,
             roundStart,
             randomShuffle,
+            maxDeck,
             botNumber,
             chatAberto,
             tempoTurnoMs: this.tempoTurnoMs,
