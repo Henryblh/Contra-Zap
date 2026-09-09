@@ -314,6 +314,14 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
                 setVencedor(p.vencedor);
                 registrar(`🏆 Vencedor: ${p.vencedor}`);
             },
+            partidaAbortada(p) {
+                if (!daSala(p)) return;
+                // Erro interno inesperado no motor (ver partidaAbortada em
+                // PROTOCOLO.md) — a partida parou e não volta. Sem vencedor:
+                // só avisa e trava a mesa onde está.
+                setErro(`A partida foi interrompida por um erro interno${p.erro ? `: ${p.erro}` : ''}.`);
+                registrar(`⛔ Partida abortada (${p.motivo ?? 'erro interno'})`);
+            },
             convidadoParaRevanche(p) {
                 if (!daSala(p)) return;
                 // Sou eu quem chamou jogarDeNovo — já sei pelo ack, e já vou

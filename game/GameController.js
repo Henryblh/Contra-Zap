@@ -178,11 +178,37 @@ export class GameController extends EventEmitter {
         // espera nada disso, só dispara e devolve na hora. O .catch aqui é
         // a mesma filosofia do responder() em socketServer.js: um erro
         // inesperado no meio da partida não pode virar um unhandled
-        // rejection e derrubar o processo.
-        this._jogarRodadaAtual().catch(erro => {
-            console.error('Erro inesperado durante a partida:', erro);
-        });
+        // rejection e derrubar o processo — mas, diferente de antes, não
+        // engole em silêncio: aborta a partida e avisa a sala (ver
+        // _abortarPartida).
+        this._jogarRodadaAtual().catch(erro => this._abortarPartida(erro));
         return this;
+    }
+
+    // Chamado quando o loop da partida lança um erro inesperado (ex.: baralho
+    // vazio / Rodada impossível — invariantes que "não deviam acontecer", ver
+    // Baralho.js e Rodada). Não tenta recuperar de propósito: marca a partida
+    // como encerrada, corta os timers soltos e emite 'partidaAbortada' pra
+    // sala inteira, pra ninguém ficar olhando uma mesa congelada sem saber
+    // por quê. O estado fica de pé (não desmonta a sala) pra dar pra
+    // investigar.
+    _abortarPartida(erro) {
+        console.error('Partida abortada por erro interno:', erro);
+
+        if (this._timerInicio) {
+            clearTimeout(this._timerInicio);
+            this._timerInicio = null;
+            this._segundosParaIniciar = null;
+        }
+        for (const timer of this._timersReserva.values()) {
+            clearTimeout(timer);
+        }
+        this._timersReserva.clear();
+
+        // Mesmo efeito de jogoFinalizado pra quem olha de fora (SalaManager,
+        // "jogar de novo"): a partida não está mais "em andamento".
+        this._finalizada = true;
+        this.emit('partidaAbortada', { motivo: 'erro_interno', erro: erro?.message ?? String(erro) });
     }
 
     // Devolve uma Promise que só resolve quando jogarCarta(jogador.id, ...)

@@ -40,6 +40,14 @@ class Baralho:
             random.shuffle(self.cartas)
 
     def comprar(self):
+        # Espelha game/Baralho.js: baralho vazio NUNCA é situação normal (o
+        # monte é dimensionado exato pra rodada -- ver rodada.py). Se chegou
+        # aqui, o cálculo de num_cards/num_baralho quebrou -- é bug, levanta
+        # pra parar tudo com contexto em vez de devolver None.
         if not self.cartas:
-            return None
+            raise RuntimeError(
+                f"Baralho vazio ao comprar carta ({self.numbaralho} baralho(s) = "
+                f"{self.numbaralho * 40} cartas montadas). Erro no cálculo de "
+                f"num_cards/num_baralho em Rodada."
+            )
         return self.cartas.pop()

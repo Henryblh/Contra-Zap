@@ -51,6 +51,7 @@ export const EventosServidor = {
     RODADA_FINALIZADA: 'rodadaFinalizada',      // { salaId, numero, resultado }
     JOGADORES_ELIMINADOS: 'jogadoresEliminados', // { salaId, eliminados: [{ nome, hp }] }
     JOGO_FINALIZADO: 'jogoFinalizado',          // { salaId, vencedor }
+    PARTIDA_ABORTADA: 'partidaAbortada',        // { salaId, motivo, erro } — erro interno inesperado no motor (invariante quebrada, ex.: baralho vazio); a partida parou e não recupera. GameController.finalizada vira true, igual jogoFinalizado. A sala NÃO é desmontada sozinha — dá pra investigar.
     JOGADA_AUTOMATICA: 'jogadaAutomatica',      // { salaId, id, jogador } — tempoTurnoMs estourou, jogou sozinho
     JOGADOR_RECONECTOU: 'jogadorReconectou',    // { salaId, id, jogador }
     JOGADOR_EXPULSO_POR_INATIVIDADE: 'jogadorExpulsoPorInatividade', // { salaId, id, jogador } — ficou limiteInatividadeMs sem agir; o socket dele já saiu da sala (assento continua, dá pra "reconectar")

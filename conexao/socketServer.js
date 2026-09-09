@@ -422,6 +422,7 @@ function ligarControllerASala(io, salaManager, sala, socketPorJogador, salaPorSo
     retransmitir(EventosServidor.RODADA_FINALIZADA);
     retransmitir(EventosServidor.JOGADORES_ELIMINADOS);
     retransmitir(EventosServidor.JOGO_FINALIZADO);
+    retransmitir(EventosServidor.PARTIDA_ABORTADA);
     retransmitir(EventosServidor.JOGADA_AUTOMATICA);
     retransmitir(EventosServidor.JOGADOR_RECONECTOU);
     retransmitir(EventosServidor.JOGADOR_EXPULSO_POR_INATIVIDADE);

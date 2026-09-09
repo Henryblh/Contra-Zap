@@ -301,9 +301,6 @@ Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
 13. 🟡 Sem HTTPS/wss (item de "produção").
 
 ### 2. Motor de jogo (`game/`)
-14. 🔴 `Rodada.virarManilha()` não checa `comprar() === null` → TypeError se o cálculo de baralhos ficar apertado. `Rodada.js`
-15. 🟢 `Baralho.comprar()` faz `console.log` numa lib e devolve `null` sem contrato claro. `Baralho.js`
-16. 🟢 `numBaralho = Math.trunc(numCards/40 + 1)` aloca 2 baralhos com exatamente 40 cartas (devia ser `Math.ceil`). `Rodada.js`
 17. 🟡 Sem limite de duração de partida / sem empate técnico — vazas meladas podem não tirar hp de ninguém e a rodada cresce indefinidamente. `GameController.js`
 18. 🟢 Desempate `vivos.length === 0` por menor `|aposta-steak|`; empate nisso → primeiro de `gameOrder`, arbitrário. `GameController.js`
 19. 🟡 `Game.girarOrdem()` avança `starterIndex` sobre `ordemOriginal` (nunca encolhe) → mesmo jogador pode abrir duas rodadas seguidas. Verificar se é desejado. `Game.js`

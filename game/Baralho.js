@@ -65,10 +65,19 @@ export class Baralho {
         }
     }
 
+    // Baralho vazio NUNCA é situação normal: o monte é dimensionado exato pra
+    // rodada (ver Rodada: numCards = jogadores*round + 1 pra vira,
+    // numBaralho = ceil(numCards/40)). Se chegou aqui, o cálculo de
+    // numCards/numBaralho quebrou (ou gameOrder/round foi corrompido) — é um
+    // bug, não um caso a tratar. Lança pra parar a partida na hora, com
+    // contexto, em vez de devolver null e explodir num TypeError adiante.
     comprar() {
         if (this.cartas.length === 0) {
-            console.log("O baralho está vazio!");
-            return null;
+            throw new Error(
+                `Baralho vazio ao comprar carta (${this.numbaralho} baralho(s) = ` +
+                `${this.numbaralho * 40} cartas montadas). Erro no cálculo de ` +
+                `numCards/numBaralho em Rodada.`
+            );
         }
         return this.cartas.pop();
     }

@@ -549,6 +549,7 @@ adicionado:
 | `rodadaFinalizada` | `{ numero, resultado }` |
 | `jogadoresEliminados` | `{ eliminados: [{ nome, hp }] }` |
 | `jogoFinalizado` | `{ vencedor }` |
+| `partidaAbortada` | `{ motivo, erro }` — erro interno inesperado no motor (invariante quebrada, ex.: baralho vazio por conta errada de baralhos). A partida parou e **não recupera**; `GameController.finalizada` vira `true` (igual `jogoFinalizado`), mas **não há vencedor**. A sala não é desmontada sozinha — ver "Limpeza de sala após o fim da partida" abaixo. Cliente deve mostrar erro e deixar sair. |
 | `jogadaAutomatica` | `{ id, jogador }` — `tempoTurnoMs` estourou, o servidor jogou sozinho por ele |
 | `jogadorReconectou` | `{ id, jogador }` — voltou via `reconectar`, flag `desconectado` desligada |
 | `jogadorExpulsoPorInatividade` | `{ id, jogador }` — `limiteInatividadeMs` sem nenhuma ação real dele **ou** ele mandou `sairDaPartida`; o socket dele já saiu da room dessa sala (assento continua e vira bot, ver seção de `reconectar` acima) |
@@ -571,9 +572,9 @@ só reusam eventos que já existem.
 
 ### Limpeza de sala após o fim da partida
 
-Depois que `jogoFinalizado` dispara (`GameController.finalizada` vira
-`true`), a sala continua existindo — dá pra `jogarDeNovo` (só o adm) ou só
-sair. Mas assim que **nenhum socket** continuar conectado na room dela
+Depois que `jogoFinalizado` **ou `partidaAbortada`** dispara
+(`GameController.finalizada` vira `true`), a sala continua existindo — dá pra
+`jogarDeNovo` (só o adm) ou só sair. Mas assim que **nenhum socket** continuar conectado na room dela
 (cada jeito de sair de uma sala terminada — `sairDaPartida`, aceitar ou
 recusar um convite de revanche, ou só fechar a aba — tira o socket da room),
 o servidor descarta a sala do sistema na mesma hora: some do `SalaManager`,
