@@ -283,27 +283,6 @@ não parece compensar o ganho agora.
 
 ## Backlog técnico — auditoria de backend
 
-Levantamento feito varrendo `Server.js`, `game/`, `conexao/`, `bots/` e a
-infra (Docker/CI). A numeração é fixa (serve de referência entre a gente) —
-itens concluídos foram removidos. **Bloco 9 fechado.** Feitos: 57–60
-(doc/valores sincronizados com o código), 62 (catálogo de chat + cooldown têm
-fonte única em `conexao/chat/mensagensChat.js`; o espelho do front foi
-deletado), 63 (`public/_intro` mantido de propósito), 64 (`.gitignore`
-consertado, build fora do git), 65 (`RodadaGame` → `Rodada`), 66 (`Main.js`
-não trava mais na aposta), 67 (`Main2.js` com `reconectar` no login + comando
-`sair` a qualquer momento na partida). Do bloco 8 resta só o 61.
-
-**Bloco 6:** 37–40 feitos — as redes de RL agora rodam em qualquer sala de
-2 a 6 jogadores. `bots/BotBrain.js:ajustarParaModelo()` força a observação
-pro formato de 4 assentos com que elas treinaram: completa com assento
-fantasma (tudo zero, que a rede lê como jogador já eliminado — dentro da
-distribuição de treino pra 2–3) quando há menos gente, e corta os assentos
-mais distantes quando há mais (5–6, aí fora da distribuição). O heurístico
-burro só sobra se os modelos nem carregarem. `logitsCarta === null` agora é
-checado explícito, não só pego por `try/catch` (item 40). Resta o 41
-(paridade de regra JS × motor Python). O treino de uma rede que cubra 5–6 de
-verdade virou item de "O que falta fazer".
-
 Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
 
 ### 1. Segurança & autenticação
@@ -348,12 +327,8 @@ Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
 33. 🟡 Sem teto de salas por jogador nem global; `_gerarSalaId` degrada com muitas salas. `SalaManager.js`
 34. 🟢 `socketPorJogador` pode ficar com entrada obsoleta em cenário multi-aba. `socketServer.js`
 
-### 5. Validação de configuração
-35. 🔴 `validarConfig` não limita `roundStart` por cima → `criarSala({ roundStart: 1e6 })` monta 25 mil baralhos → OOM. Capar. `SalaManager.js`
-36. 🟢 `randomShuffle` não é validado (só `chatAberto` é). `SalaManager.js`
-
-### 6. Bots / IA
-41. 🟡 Regra do jogo duplicada (JS de produção vs motor Python em `training/`) sem teste que pegue divergência.
+### 5. QA / Validação de comportamento
+41. 🟡 Falta Testes Para confirmar paridade de regra JS × motor Python em treinamento 
 
 ### 7. Operação / produção / DevOps
 42. 🔴 `Server.js` ignora `process.env.PORT` (`server.listen(3000)` fixo) — Docker/compose setam `PORT` esperando que valha. `Server.js`

@@ -21,17 +21,27 @@ export class ErroSala extends Error {
 
 const NUMERO_JOGADORES_MIN = 2;
 const NUMERO_JOGADORES_MAX = 6;
+// Teto de cartas na primeira rodada. Sem isto, um roundStart absurdo (ex.:
+// 1e6) faria Rodada montar milhares de baralhos (ver game/Rodada.js ->
+// game/Baralho.js) e derrubaria o processo por OOM antes da partida sequer
+// começar. 10 é muito mais do que qualquer partida real usa — a rodada só
+// cresce +1 carta por vez e a partida costuma acabar em poucas rodadas (ver
+// game/GameController.js).
+const ROUND_START_MAX = 10;
 const TEMPO_ESPERA_INICIO_MS_PADRAO = 15_000;
 
-function validarConfig({ numberPlayers, roundStart, botNumber, chatAberto }) {
+function validarConfig({ numberPlayers, roundStart, botNumber, chatAberto, randomShuffle }) {
     if (!Number.isInteger(numberPlayers) || numberPlayers < NUMERO_JOGADORES_MIN || numberPlayers > NUMERO_JOGADORES_MAX) {
         throw new ErroSala(
             CodigosErro.CONFIGURACAO_INVALIDA,
             `numberPlayers deve ser um número inteiro entre ${NUMERO_JOGADORES_MIN} e ${NUMERO_JOGADORES_MAX}.`
         );
     }
-    if (!Number.isInteger(roundStart) || roundStart < 1) {
-        throw new ErroSala(CodigosErro.CONFIGURACAO_INVALIDA, 'roundStart deve ser um número inteiro maior ou igual a 1.');
+    if (!Number.isInteger(roundStart) || roundStart < 1 || roundStart > ROUND_START_MAX) {
+        throw new ErroSala(
+            CodigosErro.CONFIGURACAO_INVALIDA,
+            `roundStart deve ser um número inteiro entre 1 e ${ROUND_START_MAX}.`
+        );
     }
     // <= numberPlayers - 1 pra sempre sobrar pelo menos o assento de quem
     // está criando a sala — sem isso daria pra criar uma sala sem nenhum
@@ -44,6 +54,9 @@ function validarConfig({ numberPlayers, roundStart, botNumber, chatAberto }) {
     }
     if (typeof chatAberto !== 'boolean') {
         throw new ErroSala(CodigosErro.CONFIGURACAO_INVALIDA, 'chatAberto deve ser true ou false.');
+    }
+    if (typeof randomShuffle !== 'boolean') {
+        throw new ErroSala(CodigosErro.CONFIGURACAO_INVALIDA, 'randomShuffle deve ser true ou false.');
     }
 }
 
@@ -114,8 +127,11 @@ export class SalaManager {
     // Cria uma sala nova e já coloca o jogador que criou dentro dela. Quem
     // cria vira o adm da sala (pode forçar início antes dos 15s, ver
     // forcarInicio). Lança ErroSala com CONFIGURACAO_INVALIDA se
-    // numberPlayers/roundStart/botNumber estiverem fora do intervalo
-    // aceito. `botNumber` (default 0) preenche o resto dos assentos com
+    // numberPlayers/roundStart/botNumber estiverem fora do intervalo aceito
+    // (roundStart vai de 1 a ROUND_START_MAX) ou se chatAberto/randomShuffle
+    // não forem boolean — a camada de socket (responder() em socketServer.js)
+    // traduz esse throw pro ack de erro, não derruba nada. `botNumber`
+    // (default 0) preenche o resto dos assentos com
     // bots (ver bots/Bot.js) assim que a sala nasce — se isso já lotar a
     // sala, a partida é agendada na hora, igual a qualquer entrarSala que
     // lote (ver _entrar).
@@ -131,13 +147,14 @@ export class SalaManager {
         const roundStart = config.roundStart ?? 3;
         const botNumber = config.botNumber ?? 0;
         const chatAberto = config.chatAberto ?? false;
-        validarConfig({ numberPlayers, roundStart, botNumber, chatAberto });
+        const randomShuffle = config.randomShuffle ?? true;
+        validarConfig({ numberPlayers, roundStart, botNumber, chatAberto, randomShuffle });
 
         const salaId = this._gerarSalaId();
         const sala = new Sala(salaId, {
             numberPlayers,
             roundStart,
-            randomShuffle: config.randomShuffle ?? true,
+            randomShuffle,
             botNumber,
             chatAberto,
             tempoTurnoMs: this.tempoTurnoMs,

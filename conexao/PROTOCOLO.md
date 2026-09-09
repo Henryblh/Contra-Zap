@@ -157,11 +157,13 @@ login normal).
 ### `criarSala`
 Payload: `{ numberPlayers?: number, roundStart?: number, randomShuffle?: boolean, botNumber?: number, chatAberto?: boolean }`
 (todos opcionais — default vem do `SalaManager`: 4 / 3 / true / 0 / false)
-`numberPlayers` precisa ser inteiro entre 2 e 6; `roundStart` inteiro ≥ 1;
+`numberPlayers` precisa ser inteiro entre 2 e 6; `roundStart` inteiro entre
+1 e 10 (o teto evita montar milhares de baralhos e estourar a memória);
 `botNumber` inteiro entre 0 e `numberPlayers - 1` (sempre sobra pelo menos o
-assento de quem criou); `chatAberto`, se vier, precisa ser boolean — fora
-disso, `CONFIGURACAO_INVALIDA`. `chatAberto` libera o chat de texto livre da
-sala (ver evento `chat`); as mensagens prontas não dependem dele.
+assento de quem criou); `chatAberto` e `randomShuffle`, se vierem, precisam
+ser boolean — fora disso, `CONFIGURACAO_INVALIDA`. `chatAberto` libera o
+chat de texto livre da sala (ver evento `chat`); as mensagens prontas não
+dependem dele.
 `botNumber` preenche o resto dos assentos com bots (ver `bots/Bot.js`)
 assim que a sala nasce, na ordem de entrada normal — se isso já lotar a
 sala, a partida é agendada na hora, igual qualquer `entrarSala` que lote.
@@ -626,7 +628,7 @@ igual na sala de espera e na partida.
 | `CONVIDADO_INVALIDO` | `entrarComoConvidado` com nome menor que 3 caracteres |
 | `TOKEN_INVALIDO` | `retomarSessao` com token que não bate a assinatura, expirou, ou veio ausente/malformado |
 | `NOME_INVALIDO` | `entrarSala` com nome já em uso *nessa sala* |
-| `CONFIGURACAO_INVALIDA` | `criarSala` com `numberPlayers`/`roundStart`/`botNumber` fora do intervalo aceito, ou `chatAberto` que não é boolean |
+| `CONFIGURACAO_INVALIDA` | `criarSala` com `numberPlayers`/`roundStart`/`botNumber` fora do intervalo aceito (`roundStart` vai de 1 a 10), ou `chatAberto`/`randomShuffle` que não é boolean |
 | `SALA_NAO_ENCONTRADA` | `entrarSala`/`forcarInicio`/`sairSala`/`jogarCarta`/`reconectar` com `salaId` que não existe |
 | `SALA_CHEIA` | `entrarSala` numa sala que já tem `numberPlayers` jogadores |
 | `SALA_NAO_CHEIA` | `forcarInicio` antes da sala lotar |
