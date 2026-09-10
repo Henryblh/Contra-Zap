@@ -192,8 +192,10 @@ dos casos, mas vem preenchido quando `botNumber` já lotou a sala: aí o
 `agendarInicio` (e o broadcast de `partidaIniciandoEm`) dispara dentro deste
 handler, antes do ack — mesmo motivo de `jogadores` vir aqui.
 Erros possíveis: `NAO_IDENTIFICADO`, `CONFIGURACAO_INVALIDA`,
-`LIMITE_DE_SALAS`, `JA_EM_PARTIDA` (você já tem assento numa partida em
-andamento — a resposta traz `{ salaId }` dela; reconecte ou `desista` antes).
+`LIMITE_DE_SALAS` (teto global de salas vivas), `LIMITE_DE_SALAS_POR_JOGADOR`
+(você já é adm de salas ativas demais ao mesmo tempo — feche/termine alguma),
+`JA_EM_PARTIDA` (você já tem assento numa partida em andamento — a resposta
+traz `{ salaId }` dela; reconecte ou `desista` antes).
 
 ### `partidaRapida`
 Payload: `{}`
@@ -709,6 +711,7 @@ de conexão, não do jogo), então chega igual na sala de espera e na partida.
 | `NOME_INVALIDO` | `entrarSala` com nome já em uso *nessa sala* |
 | `CONFIGURACAO_INVALIDA` | `criarSala` com `numberPlayers`/`roundStart`/`maxDeck`/`botNumber` fora do intervalo aceito (`roundStart` 1 a 10, `maxDeck` 1 a 50), `roundStart` que não cabe em `maxDeck` baralhos com a mesa cheia, `seed` que não é inteiro não-negativo, ou `chatAberto`/`randomShuffle` que não é boolean |
 | `LIMITE_DE_SALAS` | `criarSala`/`partidaRapida` com o teto global de salas simultâneas já atingido — barreira de sanidade, tenta de novo mais tarde |
+| `LIMITE_DE_SALAS_POR_JOGADOR` | `criarSala`/`partidaRapida` por quem já é adm de salas ativas (não finalizadas) demais ao mesmo tempo — teto por pessoa (4), complementar ao global. Feche (`sairSala`) ou termine alguma antes |
 | `SALA_NAO_ENCONTRADA` | `entrarSala`/`forcarInicio`/`sairSala`/`jogarCarta`/`reconectar` com `salaId` que não existe |
 | `SALA_CHEIA` | `entrarSala` numa sala que já tem `numberPlayers` jogadores |
 | `SALA_NAO_CHEIA` | `forcarInicio` antes da sala lotar |

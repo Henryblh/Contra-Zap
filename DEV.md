@@ -173,9 +173,6 @@ Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
 12. 🟡 Contador de `idEfemero.js` reinicia em -1 a cada restart, mas token de convidado vale 6h → risco de colisão de id. `idEfemero.js`
 13. 🟡 Sem HTTPS/wss (item de "produção").
 
-### 4. Limpeza de recursos / memória
-18. 🟢 Sem teto de salas **por jogador** (o global já existe: `MAX_SALAS`). Nada impede um cliente criar várias salas de 1 pessoa e deixar largadas até o disconnect podar. `SalaManager.js`
-
 ### 5. QA / Validação de comportamento
 19. 🟡 Falta Testes Para confirmar paridade de regra JS × motor Python em treinamento
 

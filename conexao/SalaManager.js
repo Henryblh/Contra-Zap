@@ -44,6 +44,14 @@ const TEMPO_ESPERA_INICIO_MS_PADRAO = 15_000;
 // colidir com o espaço de ids cheio), não um número que uma operação normal
 // deva chegar perto. Passou disso, criarSala devolve LIMITE_DE_SALAS.
 const MAX_SALAS = 1000;
+// Teto de salas vivas que um mesmo jogador pode ter criado ao mesmo tempo
+// (conta as em que ele ainda é o adm e a partida não terminou). Sem isto,
+// nada impedia um cliente criar dezenas de salas de 1 pessoa e deixar
+// largadas até um disconnect podar. Passou disso, criarSala devolve
+// LIMITE_DE_SALAS_POR_JOGADOR. Salas finalizadas não contam (o "jogar de
+// novo" cria uma sala nova e não pode ser barrado por salas velhas que só
+// não foram limpas ainda).
+const MAX_SALAS_POR_JOGADOR = 4;
 
 // Quantos baralhos uma rodada com `numberPlayers` e mão de `round` cartas
 // precisa — mesma conta de game/Game.js (numCards = jogadores*round + 1).
@@ -135,9 +143,14 @@ class Sala {
 }
 
 export class SalaManager {
-    constructor({ tempoEsperaInicioMs = TEMPO_ESPERA_INICIO_MS_PADRAO, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs, tempoReservaMs, chatCooldownMs = CHAT_COOLDOWN_MS } = {}) {
+    constructor({ tempoEsperaInicioMs = TEMPO_ESPERA_INICIO_MS_PADRAO, tempoTurnoMs, limiteInatividadeMs, atrasoBotMs, tempoReservaMs, chatCooldownMs = CHAT_COOLDOWN_MS, maxSalasPorJogador = MAX_SALAS_POR_JOGADOR } = {}) {
         this.salas = new Map();
         this.tempoEsperaInicioMs = tempoEsperaInicioMs;
+        // Teto de salas vivas não finalizadas que um mesmo jogador pode ter
+        // criado ao mesmo tempo (ver _exigirAbaixoDoTetoDeSalas). Injetável
+        // pelo mesmo motivo de tempoTurnoMs & cia.: testes que compartilham um
+        // SalaManager entre casos precisam poder afrouxar isso.
+        this.maxSalasPorJogador = maxSalasPorJogador;
         // undefined = deixa o GameController usar o próprio default (20s).
         // Só existe como opção aqui pra testes conseguirem injetar um valor
         // bem menor sem precisar mexer em GameController diretamente.
@@ -205,6 +218,7 @@ export class SalaManager {
         validarConfig({ numberPlayers, roundStart, botNumber, chatAberto, randomShuffle, maxDeck, seed });
 
         this._exigirSemPartidaEmAndamento(player);
+        this._exigirAbaixoDoTetoDeSalas(player);
 
         const salaId = this._gerarSalaId();
         const sala = new Sala(salaId, {
@@ -605,6 +619,26 @@ export class SalaManager {
                 CodigosErro.JA_EM_PARTIDA,
                 `Você já está numa partida em andamento (sala ${salaAtiva.salaId}) — reconecte ou desista dela antes de entrar em outra.`,
                 { salaId: salaAtiva.salaId }
+            );
+        }
+    }
+
+    // Barra criarSala quando o jogador já é adm de maxSalasPorJogador salas
+    // vivas e não finalizadas — teto por pessoa, complementar ao MAX_SALAS
+    // global. Uma sala em que ele deixou de ser adm (saiu da sala de espera,
+    // ou a vaga expirou na partida) não conta mais contra ele. O `?.` cobre
+    // entrada malformada no Map (só acontece em teste que stuba `salas`).
+    _exigirAbaixoDoTetoDeSalas(player) {
+        let minhas = 0;
+        for (const sala of this.salas.values()) {
+            if (sala.controller && !sala.controller.finalizada && sala.controller.jogadorEhAdm(player.id)) {
+                minhas++;
+            }
+        }
+        if (minhas >= this.maxSalasPorJogador) {
+            throw new ErroSala(
+                CodigosErro.LIMITE_DE_SALAS_POR_JOGADOR,
+                `Você já tem ${this.maxSalasPorJogador} salas ativas — feche ou termine alguma antes de criar outra.`
             );
         }
     }

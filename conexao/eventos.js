@@ -16,7 +16,7 @@ export const EventosCliente = {
     CADASTRAR: 'cadastrar',     // { nome, senha } -> ack: { ok, nome, token } — já autentica, sem precisar de "entrar" depois
     ENTRAR_COMO_CONVIDADO: 'entrarComoConvidado', // { nome } -> ack: { ok, nome, token } — pseudo-guest: Player só em memória (id negativo), nunca grava no banco; nasce autenticado igual entrar/cadastrar
     RETOMAR_SESSAO: 'retomarSessao', // { token } -> ack: { ok, nome, token } — reautentica o socket a partir de um token já emitido (entrar/cadastrar/entrarComoConvidado/retomarSessao anterior), sem pedir nome/senha de novo; devolve sempre um token NOVO (mesmo id/nome, prazo renovado)
-    CRIAR_SALA: 'criarSala',    // { numberPlayers, roundStart, randomShuffle, botNumber, chatAberto } -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar, chatAberto } — botNumber preenche o resto dos assentos com bots (ver bots/Bot.js); segundosParaIniciar != null se os bots já lotaram a sala; chatAberto (default false) libera o chat de texto livre da sala
+    CRIAR_SALA: 'criarSala',    // { numberPlayers, roundStart, randomShuffle, botNumber, chatAberto } -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar, chatAberto } — botNumber preenche o resto dos assentos com bots (ver bots/Bot.js); segundosParaIniciar != null se os bots já lotaram a sala; chatAberto (default false) libera o chat de texto livre da sala. Erros de teto: LIMITE_DE_SALAS (global), LIMITE_DE_SALAS_POR_JOGADOR (por pessoa), JA_EM_PARTIDA (já tem assento numa partida em andamento)
     ENTRAR_SALA: 'entrarSala',  // { salaId } -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar, chatAberto } — segundosParaIniciar != null se esta entrada lotou a sala
     PARTIDA_RAPIDA: 'partidaRapida', // {} -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar, chatAberto } — mesmo formato de criarSala/entrarSala; entra numa fila compartilhada de sala default (config igual criarSala sem parâmetros), criando-a se não houver nenhuma aberta no momento
     LISTAR_SALAS: 'listarSalas', // {} -> ack: { ok, salas: [{ salaId, numberPlayers, jogadoresAtual, chatAberto }] }
@@ -68,6 +68,7 @@ export const CodigosErro = {
     NOME_INVALIDO: 'NOME_INVALIDO',         // nome já em uso na mesma sala
     CONFIGURACAO_INVALIDA: 'CONFIGURACAO_INVALIDA', // numberPlayers/roundStart fora do intervalo aceito
     LIMITE_DE_SALAS: 'LIMITE_DE_SALAS',     // criarSala com o teto global de salas vivas já atingido — tenta de novo mais tarde
+    LIMITE_DE_SALAS_POR_JOGADOR: 'LIMITE_DE_SALAS_POR_JOGADOR', // criarSala por quem já é adm de salas ativas demais ao mesmo tempo (teto por pessoa) — feche/termine alguma antes
     SALA_NAO_ENCONTRADA: 'SALA_NAO_ENCONTRADA',
     SALA_CHEIA: 'SALA_CHEIA',
     SALA_NAO_CHEIA: 'SALA_NAO_CHEIA',       // forcarInicio antes da sala lotar
