@@ -22,12 +22,13 @@ export const EventosCliente = {
     LISTAR_SALAS: 'listarSalas', // {} -> ack: { ok, salas: [{ salaId, numberPlayers, jogadoresAtual, chatAberto }] }
     FORCAR_INICIO: 'forcarInicio', // { salaId } -> ack: { ok } — só o adm da sala, só com a sala cheia
     SAIR_SALA: 'sairSala',       // { salaId } -> ack: { ok } — só antes da partida começar
-    SAIR_DA_PARTIDA: 'sairDaPartida', // { salaId } -> ack: { ok } — abandono voluntário de partida JÁ em andamento; o assento vira bot na hora (reaproveita o caminho da expulsão por inatividade)
+    SAIR_DA_PARTIDA: 'sairDaPartida', // { salaId } -> ack: { ok } — abandono voluntário de partida JÁ em andamento; o assento vira bot na hora (reaproveita o caminho da expulsão por inatividade), MAS a vaga continua reservada pra reconectar
+    DESISTIR: 'desistir',       // { salaId } -> ack: { ok } — desistência DEFINITIVA de uma partida em andamento: perde na hora (hp zerado -> eliminado na virada de rodada) e a vaga expira já (não dá mais pra reconectar), liberando o jogador pra entrar em outra sala. Usado pelo fluxo "desistir e entrar" quando JA_EM_PARTIDA barra a entrada numa segunda sala
     JOGAR_DE_NOVO: 'jogarDeNovo', // { salaId } -> ack: { ok, salaId, numberPlayers, jogadores, segundosParaIniciar, chatAberto } — só o adm da sala TERMINADA (`salaId` é a sala antiga); cria uma sala nova com a mesma config e avisa quem mais estava lá (ver EventosServidor.CONVITE_REVANCHE)
     APOSTAR: 'apostar',          // { salaId, valor } -> ack: { ok } — valor é o número de vazas que o jogador acha que vai fazer
     JOGAR_CARTA: 'jogarCarta',   // { salaId, indice } -> ack: { ok } — indice é 0-based, posição na mão
-    RECONECTAR: 'reconectar',    // { salaId } -> ack: { ok, salaId, mao, cartasRodada, maosReveladas, suaVez, jogadorDaVez, suaVezDaAposta, jogadorDaVezAposta, chatAberto } — sala com partida já em andamento
-    MINHA_SALA_ATIVA: 'minhaSalaAtiva', // {} -> ack: { ok, salaId: string | null } — existe uma partida em andamento em que eu ainda tenho assento? pra descobrir sem saber o salaId de antemão (ex.: depois de um refresh de página)
+    RECONECTAR: 'reconectar',    // { salaId } -> ack: { ok, salaId, jogadores, mao, cartasRodada, numeroRodada, maosReveladas, mesa, vira, viraValor, apostas, eliminados, desconectados, ultimoPlacar, suaVez, jogadorDaVez, suaVezDaAposta, jogadorDaVezAposta, finalizada, vencedor, chatAberto } — estado pra remontar a tela inteira de uma partida já em andamento (ver PROTOCOLO.md)
+    MINHA_SALA_ATIVA: 'minhaSalaAtiva', // {} -> ack: { ok, salaId: string | null } — existe uma partida em andamento (começou, não terminou) em que eu ainda tenho assento reclamável? pra descobrir sem saber o salaId de antemão (ex.: depois de um refresh de página)
     CHAT: 'chat',                // { salaId, tipo: 'aberta' | 'restrita', texto?, id? } -> ack: { ok } — 'restrita' (id do catálogo, ver conexao/chat/mensagensChat.js) sempre liberada; 'aberta' (texto livre) só se a sala foi criada com chatAberto
 };
 
@@ -54,6 +55,7 @@ export const EventosServidor = {
     PARTIDA_ABORTADA: 'partidaAbortada',        // { salaId, motivo, erro } — erro interno inesperado no motor (invariante quebrada, ex.: baralho vazio); a partida parou e não recupera. GameController.finalizada vira true, igual jogoFinalizado. A sala NÃO é desmontada sozinha — dá pra investigar.
     JOGADA_AUTOMATICA: 'jogadaAutomatica',      // { salaId, id, jogador } — tempoTurnoMs estourou, jogou sozinho
     JOGADOR_RECONECTOU: 'jogadorReconectou',    // { salaId, id, jogador }
+    JOGADOR_DESISTIU: 'jogadorDesistiu',        // { salaId, id, jogador } — desistiu de vez (ver EventosCliente.DESISTIR); perde na hora e a vaga expira (um vagaExpirada sai logo em seguida). O socket dele já saiu da room.
     JOGADOR_EXPULSO_POR_INATIVIDADE: 'jogadorExpulsoPorInatividade', // { salaId, id, jogador } — ficou limiteInatividadeMs sem agir; o socket dele já saiu da sala (assento continua, dá pra "reconectar")
     VAGA_EXPIRADA: 'vagaExpirada', // { salaId, id, jogador } — tempoReservaMs sem reconectar depois de virar bot; a vaga não pode mais ser reclamada, esse assento é bot pro resto da partida
     NOVO_ADM: 'novoAdm', // { salaId, id, jogador } — o adm anterior teve a vaga expirada (ver VAGA_EXPIRADA); passa pro próximo jogador de verdade (nem bot original, nem com vaga expirada) na ordem de entrada
@@ -73,6 +75,7 @@ export const CodigosErro = {
     SALA_NAO_INICIADA: 'SALA_NAO_INICIADA', // jogarCarta numa sala cuja partida ainda não começou
     SALA_NAO_FINALIZADA: 'SALA_NAO_FINALIZADA', // jogarDeNovo antes de jogoFinalizado disparar na sala
     JA_ESTA_NA_SALA: 'JA_ESTA_NA_SALA',
+    JA_EM_PARTIDA: 'JA_EM_PARTIDA',         // criarSala/entrarSala/partidaRapida por quem já tem assento reclamável numa partida em andamento; a resposta traz { salaId } da partida antiga — o cliente oferece reconectar nela ou desistir dela (DESISTIR) antes de entrar em outra
     NAO_ESTA_NA_SALA: 'NAO_ESTA_NA_SALA',   // sairSala por quem não está (mais) nessa sala
     VAGA_EXPIRADA: 'VAGA_EXPIRADA',         // reconectar depois que tempoReservaMs passou sem ninguém voltar — a vaga virou bot pra sempre, não dá mais pra reclamar
     NAO_AUTORIZADO: 'NAO_AUTORIZADO',       // forcarInicio por quem não é o adm da sala

@@ -12,10 +12,15 @@ import { montarMensagemChat, ErroChat } from './chat/chat.js';
 import { CHAT_COOLDOWN_MS } from './chat/mensagensChat.js';
 
 export class ErroSala extends Error {
-    constructor(codigo, mensagem) {
+    // `dados` (opcional) é um objeto que a camada de socket espalha na
+    // resposta de erro do ack, além de { codigo, mensagem } — ex.:
+    // JA_EM_PARTIDA manda { salaId } da partida antiga, pro cliente já saber
+    // onde reconectar / de onde desistir.
+    constructor(codigo, mensagem, dados) {
         super(mensagem);
         this.name = 'ErroSala';
         this.codigo = codigo;
+        this.dados = dados;
     }
 }
 
@@ -199,6 +204,8 @@ export class SalaManager {
         const seed = config.seed;
         validarConfig({ numberPlayers, roundStart, botNumber, chatAberto, randomShuffle, maxDeck, seed });
 
+        this._exigirSemPartidaEmAndamento(player);
+
         const salaId = this._gerarSalaId();
         const sala = new Sala(salaId, {
             numberPlayers,
@@ -292,6 +299,7 @@ export class SalaManager {
         if (!sala) {
             throw new ErroSala(CodigosErro.SALA_NAO_ENCONTRADA, `Sala "${salaId}" não existe.`);
         }
+        this._exigirSemPartidaEmAndamento(player);
         if (sala.iniciada) {
             throw new ErroSala(CodigosErro.SALA_JA_INICIADA, 'A partida desta sala já começou.');
         }
@@ -433,6 +441,25 @@ export class SalaManager {
         return sala;
     }
 
+    // Desistência DEFINITIVA de uma partida em andamento (ver
+    // GameController.desistir): perde na hora e a vaga expira já, liberando o
+    // jogador pra entrar em outra sala — é o que o fluxo "desistir e entrar"
+    // da Lobby chama depois de um JA_EM_PARTIDA. NAO_ESTA_NA_SALA se quem
+    // pediu não faz parte de uma partida em andamento nessa sala.
+    desistir(salaId, player) {
+        const sala = this.salas.get(salaId);
+        if (!sala) {
+            throw new ErroSala(CodigosErro.SALA_NAO_ENCONTRADA, `Sala "${salaId}" não existe.`);
+        }
+        if (!sala.iniciada) {
+            throw new ErroSala(CodigosErro.SALA_NAO_INICIADA, 'A partida desta sala ainda não começou.');
+        }
+        if (!sala.controller.desistir(player.id)) {
+            throw new ErroSala(CodigosErro.NAO_ESTA_NA_SALA, 'Você não faz parte de uma partida em andamento nessa sala.');
+        }
+        return sala;
+    }
+
     // Tira o jogador da sala antes da partida começar — saída voluntária ou
     // limpeza de desconexão (ver socketServer.js, que chama isto nos dois
     // casos e engole o erro no caso de desconexão, já que não tem cliente
@@ -537,27 +564,49 @@ export class SalaManager {
             }));
     }
 
-    // Acha uma partida já em andamento em que esse playerId ainda tem
-    // assento — é o que permite um socket recém-autenticado (ex.: depois de
-    // um refresh de página, sem estado nenhum guardado no cliente) descobrir
-    // sozinho que existe uma partida esperando por ele, sem saber o salaId
-    // de antemão (ver EventosCliente.MINHA_SALA_ATIVA). Salas não iniciadas
-    // não contam — lá "sair" já é de verdade (ver sairSala), não tem assento
-    // pra descobrir. Se o jogador tiver mais de uma (hoje possível: nada
-    // impede criar/entrar numa sala nova depois de sair de outra em
-    // andamento), devolve a primeira encontrada — caso raro, não vale a
-    // complexidade de devolver uma lista ainda.
-    salaAtivaDoJogador(playerId) {
+    // Partida em andamento (começou, ainda não terminou) em que esse playerId
+    // tem assento reclamável (vaga não expirada). É a fonte única pra duas
+    // coisas: `minhaSalaAtiva` (o cliente descobre sozinho onde reconectar,
+    // ex.: depois de um refresh) e o guard de entrada (não dá pra ter assento
+    // em duas partidas ao mesmo tempo — ver _exigirSemPartidaEmAndamento).
+    // Exclusões:
+    //  - sala não iniciada: lá "sair" já é de verdade (sairSala), não tem
+    //    assento pra descobrir;
+    //  - sala finalizada (mas ainda no Map): reconectar numa partida que já
+    //    acabou não serve pra nada, e barra o próprio adm de "jogar de novo";
+    //  - vaga expirada: virou bot pra sempre (ver GameController._expirarVaga
+    //    / desistir), o jogador não está mais preso a ela.
+    // Como não dá mais pra acumular assentos (o guard barra), na prática só
+    // existe uma — mas a busca continua devolvendo a primeira achada.
+    _salaEmAndamentoDoJogador(playerId) {
         for (const sala of this.salas.values()) {
-            // vagaExpirada de fora conta como "não tem mais o que descobrir
-            // aqui" — sem isso o cliente continuaria recebendo essa sala como
-            // "dá pra reconectar" pra sempre, mesmo depois de tempoReservaMs
-            // (ver GameController._expirarVaga).
-            if (sala.iniciada && sala.jogadores.some(jogador => jogador.id === playerId && !jogador.vagaExpirada)) {
-                return sala.salaId;
+            if (sala.iniciada
+                && !sala.controller.finalizada
+                && sala.jogadores.some(jogador => jogador.id === playerId && !jogador.vagaExpirada)) {
+                return sala;
             }
         }
         return null;
+    }
+
+    salaAtivaDoJogador(playerId) {
+        return this._salaEmAndamentoDoJogador(playerId)?.salaId ?? null;
+    }
+
+    // Barra criarSala/entrarSala/partidaRapida quando o jogador já tem
+    // assento reclamável numa partida em andamento — sem isto dava pra
+    // acumular assento em várias partidas (e reconectar em todas). O erro
+    // carrega o salaId da partida antiga: o cliente oferece reconectar nela
+    // ou desistir dela (DESISTIR) antes de entrar noutra.
+    _exigirSemPartidaEmAndamento(player) {
+        const salaAtiva = this._salaEmAndamentoDoJogador(player.id);
+        if (salaAtiva) {
+            throw new ErroSala(
+                CodigosErro.JA_EM_PARTIDA,
+                `Você já está numa partida em andamento (sala ${salaAtiva.salaId}) — reconecte ou desista dela antes de entrar em outra.`,
+                { salaId: salaAtiva.salaId }
+            );
+        }
     }
 
     _entrar(sala, player) {

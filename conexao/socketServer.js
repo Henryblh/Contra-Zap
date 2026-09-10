@@ -223,6 +223,18 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
             });
         });
 
+        socket.on(EventosCliente.DESISTIR, ({ salaId } = {}, ack) => {
+            responder(ack, () => {
+                const player = exigirJogador();
+                // Desistência definitiva: perde na hora e a vaga expira (ver
+                // GameController.desistir). O jogadorDesistiu que sai daí é o
+                // que tira o socket dele da room, pelo listener em
+                // ligarControllerASala — nada a fazer aqui além de disparar.
+                salaManager.desistir(salaId, player);
+                return {};
+            });
+        });
+
         socket.on(EventosCliente.JOGAR_DE_NOVO, ({ salaId } = {}, ack) => {
             responder(ack, () => {
                 const player = exigirJogador();
@@ -334,6 +346,15 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
                 }
             }
 
+            // Multi-aba / relogin: se ainda sobrou OUTRO socket autenticado
+            // deste mesmo jogador apontando pra esta sala, este disconnect é
+            // só uma aba fechando entre várias — não pode tirar o assento de
+            // quem continua ativo noutra aba. Só quando não sobra nenhum é
+            // que a limpeza abaixo faz sentido.
+            const outraAbaNaSala = !!player && [...jogadorPorSocket].some(
+                ([outroId, outroPlayer]) => outroPlayer.id === player.id && salaPorSocket.get(outroId) === salaId
+            );
+
             // Best-effort: sem cliente do outro lado pra responder erro
             // nenhum. Numa sala ainda em espera, sairSala tira o assento de
             // verdade. Numa partida em andamento (não finalizada), não
@@ -346,7 +367,7 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
             // reservaria/expiraria a vaga, e a sucessão de adm (ver
             // GameController._transferirAdm) nunca aconteceria pra quem só
             // fechou a aba sem clicar em nada.
-            if (player && salaId) {
+            if (player && salaId && !outraAbaNaSala) {
                 const sala = salaManager.obterSala(salaId);
                 if (sala && sala.controller.finalizada) {
                     if (!sala.controller.vagaExpirada(player.id)) {
@@ -439,6 +460,7 @@ function ligarControllerASala(io, salaManager, sala, socketPorJogador, salaPorSo
     retransmitir(EventosServidor.JOGADA_AUTOMATICA);
     retransmitir(EventosServidor.JOGADOR_RECONECTOU);
     retransmitir(EventosServidor.JOGADOR_EXPULSO_POR_INATIVIDADE);
+    retransmitir(EventosServidor.JOGADOR_DESISTIU);
     retransmitir(EventosServidor.VAGA_EXPIRADA);
     retransmitir(EventosServidor.NOVO_ADM);
 
@@ -462,6 +484,20 @@ function ligarControllerASala(io, salaManager, sala, socketPorJogador, salaPorSo
         // de ver o vencedor, ou recusou um convite de revanche) e esse era o
         // último socket ainda na room, a sala não serve mais pra nada — ver
         // encerrarSeFinalizadaEVazia.
+        encerrarSeFinalizadaEVazia(io, salaManager, salaId);
+    });
+
+    // Desistência definitiva (ver EventosCliente.DESISTIR): mesmo efeito de
+    // socket que a expulsão acima — o assento continua na partida (como bot,
+    // já eliminado no fim da rodada), mas o socket dele não tem mais nada a
+    // ver com esta room. O broadcast de jogadorDesistiu já avisou a sala.
+    controller.on(EventosServidor.JOGADOR_DESISTIU, ({ id, jogador }) => {
+        console.log(`[Sala ${salaId}] ${jogador} desistiu da partida.`);
+        const socketId = socketPorJogador.get(id);
+        if (socketId && salaPorSocket.get(socketId) === salaId) {
+            io.sockets.sockets.get(socketId)?.leave(salaId);
+            salaPorSocket.delete(socketId);
+        }
         encerrarSeFinalizadaEVazia(io, salaManager, salaId);
     });
 
@@ -510,7 +546,9 @@ function responder(ack, acao) {
         ack({ ok: true, ...resultado });
     } catch (erro) {
         if (erro instanceof ErroLogin || erro instanceof ErroCadastro || erro instanceof ErroConvidado || erro instanceof ErroSessao || erro instanceof ErroSala || erro instanceof ErroChat || erro instanceof ErroProtocolo) {
-            ack({ ok: false, codigo: erro.codigo, mensagem: erro.message });
+            // `erro.dados` (hoje só ErroSala usa — ex.: JA_EM_PARTIDA manda
+            // { salaId }) vai junto no ack de erro.
+            ack({ ok: false, codigo: erro.codigo, mensagem: erro.message, ...(erro.dados ?? {}) });
         } else {
             console.error('Erro inesperado num handler de socket:', erro);
             ack({ ok: false, codigo: CodigosErro.ERRO_INTERNO, mensagem: 'Erro interno do servidor.' });

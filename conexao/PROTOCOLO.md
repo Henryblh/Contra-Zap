@@ -191,17 +191,20 @@ inicial, só nos que vêm depois. `segundosParaIniciar` é `null` na maioria
 dos casos, mas vem preenchido quando `botNumber` já lotou a sala: aí o
 `agendarInicio` (e o broadcast de `partidaIniciandoEm`) dispara dentro deste
 handler, antes do ack — mesmo motivo de `jogadores` vir aqui.
-Erros possíveis: `NAO_IDENTIFICADO`, `CONFIGURACAO_INVALIDA`, `LIMITE_DE_SALAS`.
+Erros possíveis: `NAO_IDENTIFICADO`, `CONFIGURACAO_INVALIDA`,
+`LIMITE_DE_SALAS`, `JA_EM_PARTIDA` (você já tem assento numa partida em
+andamento — a resposta traz `{ salaId }` dela; reconecte ou `desista` antes).
 
 ### `partidaRapida`
 Payload: `{}`
 Pré-condição: socket já mandou `entrar`/`cadastrar`/`entrarComoConvidado`.
 Ack sucesso: mesmo formato de `criarSala`/`entrarSala` — `{ ok: true, salaId,
 numberPlayers, jogadores, segundosParaIniciar: number | null, chatAberto }`.
-Erros possíveis: `NAO_IDENTIFICADO`, mais os que `entrarSala` pode devolver
-quando cai no caminho de entrar numa sala já existente (`NOME_INVALIDO` se o
-nome já estiver em uso nela — caso raro, dois jogadores com o mesmo nome
-batendo na fila ao mesmo tempo).
+Erros possíveis: `NAO_IDENTIFICADO`, `JA_EM_PARTIDA` (você já tem assento
+numa partida em andamento — ver `criarSala`), mais os que `entrarSala` pode
+devolver quando cai no caminho de entrar numa sala já existente
+(`NOME_INVALIDO` se o nome já estiver em uso nela — caso raro, dois
+jogadores com o mesmo nome batendo na fila ao mesmo tempo).
 
 Fila compartilhada de sala com config default (mesmo resultado de
 `criarSala` sem parâmetros nenhum — 4 jogadores, 3 cartas na primeira
@@ -227,7 +230,9 @@ essa entrada lotar a sala, o início automático é agendado (ver
 acabou de entrar só monta a tela depois do ack e perderia o broadcast de
 `partidaIniciandoEm` que já saiu.
 Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`, `SALA_CHEIA`,
-`SALA_JA_INICIADA`, `JA_ESTA_NA_SALA`, `NOME_INVALIDO` (nome duplicado na sala).
+`SALA_JA_INICIADA`, `JA_ESTA_NA_SALA`, `NOME_INVALIDO` (nome duplicado na
+sala), `JA_EM_PARTIDA` (você já tem assento numa partida em andamento — a
+resposta traz `{ salaId }` dela; reconecte ou `desista` antes).
 
 ### `listarSalas`
 Payload: `{}`
@@ -276,6 +281,31 @@ de uma expulsão por inatividade. Pra voltar: `entrar` (socket novo) +
 Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`,
 `SALA_NAO_INICIADA` (a partida ainda não começou — use `sairSala`),
 `NAO_ESTA_NA_SALA` (não faz parte dessa partida).
+
+### `desistir`
+Payload: `{ salaId: string }`
+Pré-condição: socket já mandou `entrar`; a partida da sala precisa **já ter
+começado** e não ter terminado; e quem manda precisa fazer parte dela com a
+vaga ainda não expirada.
+Desistência **definitiva**, o oposto de `sairDaPartida` (que só vira bot e
+mantém a vaga reservada). É o que o cliente chama no fluxo "desistir e
+entrar", quando `JA_EM_PARTIDA` (ver abaixo) barra a entrada numa segunda
+sala. Efeito:
+- **Perde na hora**: o `hp` do assento vai a 0, o que garante a eliminação
+  dele na próxima virada de rodada (igual morte normal — sai um
+  `jogadoresEliminados`), e se isso deixar um único vivo o `jogoFinalizado`
+  decide W.O. sozinho. O bot termina a rodada em curso no lugar dele.
+- **A vaga expira já** (mesmo caminho de `tempoReservaMs` estourando): sai um
+  `jogadorDesistiu` seguido de um `vagaExpirada`, o socket dele sai da room,
+  e — se era o adm — o posto passa adiante (`novoAdm`). A partir daí
+  `reconectar` nessa sala devolve `VAGA_EXPIRADA` e `minhaSalaAtiva` para de
+  apontar pra ela — o jogador está livre pra entrar noutra sala.
+- Se era a última vaga de gente de verdade, a sala inteira é removida (igual
+  `vagaExpirada` por tempo — ver "Expiração de vaga reservada").
+Ack sucesso: `{ ok: true }`.
+Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`,
+`SALA_NAO_INICIADA` (a partida ainda não começou), `NAO_ESTA_NA_SALA` (não
+faz parte de uma partida em andamento nessa sala, ou a vaga já expirou).
 
 ### `jogarDeNovo`
 Payload: `{ salaId: string }` — a sala que **terminou** (`jogoFinalizado` já
@@ -375,11 +405,15 @@ Uma desconexão "do nada" (aba fechada, rede caiu) **antes** da partida
 começar tem exatamente o mesmo efeito de mandar `sairSala` — o servidor
 chama a mesma função internamente ao detectar o `disconnect`, sem esperar o
 cliente pedir nada (silenciosamente: não tem ack pra responder, e um erro
-esperado não é logado). Já uma desconexão **depois** que a partida começou
-mas **antes** dela terminar não mexe no roster do jogo — o assento continua
-lá. Se a desconexão acontecer bem na vez dele, o timeout acima cuida disso
-normalmente (jogada automática); se não for a vez dele, simplesmente não
-acontece nada até a vez chegar.
+esperado não é logado). **Exceção multi-aba**: se ainda sobrar outro socket
+autenticado do mesmo jogador apontando pra essa mesma sala (ex.: ele abriu
+uma segunda aba, ou relogou noutra, e só depois a primeira caiu), esse
+`disconnect` não mexe no assento — só quando não sobra nenhuma conexão dele
+naquela sala é que a limpeza roda. Já uma desconexão **depois** que a
+partida começou mas **antes** dela terminar não mexe no roster do jogo — o
+assento continua lá. Se a desconexão acontecer bem na vez dele, o timeout
+acima cuida disso normalmente (jogada automática); se não for a vez dele,
+simplesmente não acontece nada até a vez chegar.
 
 Uma desconexão **depois** que a partida já **terminou** (`jogoFinalizado`
 já disparou) é a única exceção: como não existe mais nenhum turno sendo
@@ -388,7 +422,8 @@ especial, fechar a aba depois de ver o resultado nunca reservaria/expiraria
 a vaga (nem disputaria a sucessão de adm, ver "Sucessão de adm" mais
 abaixo). Por isso, nesse caso específico, o `disconnect` chama a mesma
 função de `sairDaPartida` internamente (mesma filosofia do caso "antes de
-começar" acima).
+começar" acima). A mesma exceção multi-aba vale aqui: só roda se não sobrou
+outra conexão do jogador naquela sala.
 
 **Expulsão por inatividade**: cada timeout de turno (aposta ou carta) também
 checa há quanto tempo (real, em ms — não em turnos) aquele jogador não faz
@@ -451,20 +486,47 @@ logar de novo, o `socket.id` é outro); a sala precisa **já ter começado**
 parte daquela partida (ter entrado na sala antes dela começar); e a vaga
 dele não pode ter expirado de vez (ver `VAGA_EXPIRADA` abaixo e a seção
 "Expiração de vaga reservada" mais adiante).
-Ack sucesso: `{ ok: true, salaId, mao: string[], cartasRodada: number,
-maosReveladas: [{ jogador, mao: string[] }], suaVez: boolean,
+Ack sucesso: `{ ok: true, salaId, jogadores: [{ nome, adm }],
+mao: string[], cartasRodada: number,
+numeroRodada: number, maosReveladas: [{ jogador, mao: string[] }],
+mesa: [{ jogador, carta: string }], vira: string | null,
+viraValor: number | null, apostas: [{ jogador, aposta: number }],
+eliminados: string[], desconectados: string[],
+ultimoPlacar: [{ nome, aposta, steak, diferenca, hp }], suaVez: boolean,
 jogadorDaVez: string | null, suaVezDaAposta: boolean,
-jogadorDaVezAposta: string | null, chatAberto: boolean }` — a mão atual de quem reconectou,
-quantas cartas tem a rodada (pro limite do input de aposta) e de quem é a
-vez agora, tanto pra jogar carta quanto pra apostar (as duas esperas nunca
-coexistem — no máximo um par faz sentido de cada vez, o outro fica
-`false`/`null`), pra o cliente já poder pedir a ação certa na hora, sem
-esperar um `turnoJogador`/`turnoAposta` que já passou antes dele voltar.
-`maosReveladas` só vem preenchido na rodada de 1 carta (ver evento
-`maosReveladas` abaixo) — são as mãos dos outros que ainda não jogaram, pra
-remontar a "testa" sem esperar o broadcast que já passou; vazio `[]` em
-qualquer outra rodada. O socket dá `join` na sala de novo (broadcasts
-futuros voltam a chegar) e a flag `desconectado` desse jogador é desligada.
+jogadorDaVezAposta: string | null, finalizada: boolean,
+vencedor: string | null, chatAberto: boolean }` — o estado pra remontar a
+tela inteira sem depender dos broadcasts que já passaram enquanto o jogador
+estava fora:
+- `jogadores`: o roster da sala com a flag `adm` — o ack de `reconectar` não
+  dispara `listaJogadores`, então sem isto a tela remontada ficaria sem
+  lista de jogadores até o próximo evento que a mexa.
+- `mao` / `cartasRodada` / `numeroRodada`: a mão atual, quantas cartas tem a
+  rodada (pro limite do input de aposta) e o número dela.
+- `suaVez`/`jogadorDaVez` e `suaVezDaAposta`/`jogadorDaVezAposta`: de quem é
+  a vez agora, tanto pra jogar carta quanto pra apostar (as duas esperas
+  nunca coexistem — no máximo um par faz sentido de cada vez, o outro fica
+  `false`/`null`), pra o cliente já pedir a ação certa sem esperar um
+  `turnoJogador`/`turnoAposta` que já passou.
+- `mesa`: as cartas já baixadas na vaza em curso, na ordem em que caíram
+  (mesmo shape acumulado de `cartaJogada`); `[]` no começo de cada vaza.
+- `vira`/`viraValor`: a manilha da rodada (mesmo conteúdo de `manilhaVirada`);
+  `null` no vão — na prática síncrono — entre `novaRodadaIniciada` e a vira.
+- `apostas`: só as apostas que **já valem** nesta rodada (mesmo shape
+  acumulado de `apostaFeita`); quem ainda não apostou não aparece.
+- `eliminados`: nomes de quem já foi eliminado (hp ≤ 0) na partida.
+- `desconectados`: nomes dos assentos humanos jogando no automático agora
+  (mesmo critério de `jogadorExpulsoPorInatividade`, sem o próprio
+  reconectante); some de lá com o `jogadorReconectou` de cada um.
+- `ultimoPlacar`: o resultado da última `rodadaFinalizada` (aposta/steak/
+  diferença/hp por jogador); `[]` antes da primeira rodada fechar.
+- `maosReveladas`: só na rodada de 1 carta (ver evento abaixo) — as mãos dos
+  outros que ainda não jogaram, pra remontar a "testa"; `[]` nas demais.
+- `finalizada`/`vencedor`: se a partida já acabou (blip de rede no último
+  lance), `finalizada: true` e `vencedor` com o nome; `null` enquanto joga.
+
+O socket dá `join` na sala de novo (broadcasts futuros voltam a chegar) e a
+flag `desconectado` desse jogador é desligada.
 Erros possíveis: `NAO_IDENTIFICADO`, `SALA_NAO_ENCONTRADA`,
 `SALA_NAO_INICIADA` (sala existe mas a partida não começou — use
 `entrarSala`), `NAO_ESTA_NA_SALA` (não faz parte dessa partida),
@@ -475,19 +537,19 @@ voltar — ver "Expiração de vaga reservada" mais adiante).
 Payload: `{}`
 Pré-condição: socket já mandou `entrar`.
 Ack sucesso: `{ ok: true, salaId: string | null }` — o `salaId` de uma
-partida já em andamento em que quem pediu ainda tem assento, ou `null` se
-não tiver nenhuma. Existe pra um socket recém-autenticado (ex.: depois de um
-refresh de página — o cliente não guarda `salaId` nenhum entre recarregas,
-de propósito) conseguir descobrir sozinho que existe uma partida esperando
-por ele, sem precisar saber o `salaId` de antemão — é o mesmo `salaId` que
-`reconectar` espera. Salas ainda na sala de espera (não iniciadas) não
-contam aqui: lá "sumir" já tira o assento de verdade (ver `disconnect` em
-`jogarCarta` acima), não tem o que descobrir. Uma vaga com `VAGA_EXPIRADA`
-(ver mais adiante) também não conta mais aqui — é assim que o cliente para
-de oferecer "reconectar" sozinho pra uma vaga que já era. Se o jogador tiver
-assento em mais de uma partida em andamento ao mesmo tempo (hoje possível —
-nada impede criar/entrar numa sala nova depois de sair de outra, ver "Sair
-da partida" no front), devolve só a primeira encontrada.
+partida em andamento (começou, **não terminou**) em que quem pediu ainda tem
+assento reclamável, ou `null` se não tiver nenhuma. Existe pra um socket
+recém-autenticado (ex.: depois de um refresh de página — o cliente não
+guarda `salaId` nenhum entre recarregas, de propósito) conseguir descobrir
+sozinho que existe uma partida esperando por ele, sem precisar saber o
+`salaId` de antemão — é o mesmo `salaId` que `reconectar` espera. Não contam
+aqui: salas ainda na sala de espera (lá "sumir" já tira o assento de
+verdade); salas já **finalizadas** mas ainda no sistema (reconectar numa
+partida que acabou não serve pra nada); e vagas com `VAGA_EXPIRADA` (o
+cliente para de oferecer "reconectar" pra uma vaga que já era). Como não dá
+mais pra ter assento em duas partidas ao mesmo tempo (`JA_EM_PARTIDA` barra
+`criarSala`/`entrarSala`/`partidaRapida`), na prática só existe uma —
+devolvida diretamente.
 Erros possíveis: `NAO_IDENTIFICADO`.
 
 ### `chat`
@@ -562,7 +624,8 @@ adicionado:
 | `jogadaAutomatica` | `{ id, jogador }` — `tempoTurnoMs` estourou, o servidor jogou sozinho por ele |
 | `jogadorReconectou` | `{ id, jogador }` — voltou via `reconectar`, flag `desconectado` desligada |
 | `jogadorExpulsoPorInatividade` | `{ id, jogador }` — `limiteInatividadeMs` sem nenhuma ação real dele **ou** ele mandou `sairDaPartida`; o socket dele já saiu da room dessa sala (assento continua e vira bot, ver seção de `reconectar` acima) |
-| `vagaExpirada` | `{ id, jogador }` — `tempoReservaMs` depois de `jogadorExpulsoPorInatividade` sem ninguém reconectar; a vaga não pode mais ser reclamada, ver "Expiração de vaga reservada" abaixo |
+| `jogadorDesistiu` | `{ id, jogador }` — mandou `desistir` (desistência definitiva): perde na hora (hp a 0 → eliminado na virada) e a vaga expira já; sai um `vagaExpirada` logo em seguida. O socket dele já saiu da room. Ver `desistir` acima. |
+| `vagaExpirada` | `{ id, jogador }` — `tempoReservaMs` depois de `jogadorExpulsoPorInatividade` sem ninguém reconectar, **ou** logo após um `jogadorDesistiu`; a vaga não pode mais ser reclamada, ver "Expiração de vaga reservada" abaixo |
 | `novoAdm` | `{ id, jogador }` — o adm anterior teve a vaga expirada; passa pro próximo jogador de verdade, ver "Sucessão de adm" abaixo |
 
 ### `convidadoParaRevanche`
@@ -636,7 +699,7 @@ de conexão, não do jogo), então chega igual na sala de espera e na partida.
 
 | Código | Quando |
 |---|---|
-| `NAO_IDENTIFICADO` | Mandou `criarSala`/`entrarSala`/`listarSalas`/`forcarInicio`/`sairSala`/`jogarCarta`/`reconectar`/`minhaSalaAtiva`/`chat` sem ter mandado `entrar` antes |
+| `NAO_IDENTIFICADO` | Mandou `criarSala`/`entrarSala`/`listarSalas`/`forcarInicio`/`sairSala`/`sairDaPartida`/`desistir`/`jogarCarta`/`reconectar`/`minhaSalaAtiva`/`chat` sem ter mandado `entrar` antes |
 | `USUARIO_NAO_ENCONTRADO` | `entrar` com nome que não existe no banco |
 | `SENHA_INCORRETA` | `entrar` com nome existente, senha errada |
 | `CADASTRO_INVALIDO` | `cadastrar` com nome ou senha menor que 3 caracteres |
@@ -653,8 +716,9 @@ de conexão, não do jogo), então chega igual na sala de espera e na partida.
 | `SALA_NAO_INICIADA` | `jogarCarta`/`reconectar` numa sala cuja partida ainda não começou |
 | `SALA_NAO_FINALIZADA` | `jogarDeNovo` numa sala cuja partida ainda não terminou |
 | `JA_ESTA_NA_SALA` | `entrarSala` com o mesmo jogador (mesmo id de sessão) já presente |
-| `NAO_ESTA_NA_SALA` | `sairSala` por quem não está (mais) naquela sala; `reconectar`/`chat` por quem não faz parte da partida/sala |
-| `VAGA_EXPIRADA` | `reconectar` numa vaga que já passou de `tempoReservaMs` desde que virou bot, sem ninguém voltar (ver "Expiração de vaga reservada" abaixo) |
+| `JA_EM_PARTIDA` | `criarSala`/`entrarSala`/`partidaRapida` por quem já tem assento reclamável numa partida em andamento (começou, não terminou). A resposta traz `{ salaId }` dela — o cliente oferece reconectar nela ou `desistir` dela antes de entrar em outra |
+| `NAO_ESTA_NA_SALA` | `sairSala` por quem não está (mais) naquela sala; `reconectar`/`chat`/`desistir` por quem não faz parte da partida/sala |
+| `VAGA_EXPIRADA` | `reconectar` numa vaga que já passou de `tempoReservaMs` desde que virou bot, sem ninguém voltar, **ou** que o jogador liberou via `desistir` (ver "Expiração de vaga reservada" abaixo) |
 | `NAO_AUTORIZADO` | `forcarInicio` por quem não é o adm da sala |
 | `NAO_E_SUA_VEZ` | `jogarCarta`/`apostar` fora da sua vez |
 | `CARTA_INVALIDA` | `jogarCarta` com `indice` que não existe na mão de quem mandou |
@@ -680,11 +744,15 @@ de conexão, não do jogo), então chega igual na sala de espera e na partida.
   jogador da sala (`sairSala`), então "reconectar" ali é só logar de novo e
   mandar `entrarSala` como se fosse a primeira vez. `reconectar` (evento
   novo) só serve pra partida já em andamento.
-- Abandono/forfeit "de verdade" (que libere a vaga, decida vitória por W.O.,
-  etc.). O que existe hoje — `sairDaPartida` — só transforma o assento em bot
-  na hora (reaproveitando o caminho da expulsão por inatividade): a partida
-  segue com o mesmo número de assentos, a vaga continua reservada pra
-  `reconectar`, e ninguém "ganha no grito" por alguém ter saído.
+- Abandono/forfeit com **remoção de assento** de verdade (a partida passar a
+  ter menos gente na mesa, recontar baralho, etc.) continua fora — o motor
+  assume número de assentos fixo pela partida inteira. O que existe:
+  `sairDaPartida` (vira bot, vaga reservada, dá pra `reconectar`) e
+  `desistir` (perde na hora — hp a 0, eliminado na virada, W.O. decidido
+  sozinho se sobrar um vivo — e a vaga expira já, liberando o jogador pra
+  entrar noutra sala). Nos dois o assento **continua** em
+  `controller.jogadores`; `desistir` só o mata e o marca como não-reclamável,
+  em vez de tirar da lista.
 - Persistência de sessão no `Main2.js`: o harness de CLI não guarda o token
   entre execuções — a cada `node Main2.js` é preciso logar de novo. Ele já
   oferece `reconectar` logo após o login (checa `minhaSalaAtiva`) e tem um

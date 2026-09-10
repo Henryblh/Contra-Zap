@@ -173,12 +173,6 @@ Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
 12. 🟡 Contador de `idEfemero.js` reinicia em -1 a cada restart, mas token de convidado vale 6h → risco de colisão de id. `idEfemero.js`
 13. 🟡 Sem HTTPS/wss (item de "produção").
 
-### 3. Reconexão / estado de partida
-14. 🔴 `estadoDeReconexao` não devolve mesa da vaza atual, vira/manilha, apostas dos outros, hp/steak, eliminados, nº da rodada, placar. `GameController.js`
-15. 🔴 `Partida.jsx` `ressincronizar` tem os mesmos buracos (não repovoa `mesa`, `vira`, `apostas`, `eliminados`). `Partida.jsx`
-16. 🔴 Fechar aba antiga / relogar em outra aba dispara `disconnect` do socket velho → `sairSala` remove o assento do jogador ainda ativo. `socketServer.js`
-17. 🟡 `minhaSalaAtiva` devolve só a primeira sala quando há assento em várias partidas. `SalaManager.js`
-
 ### 4. Limpeza de recursos / memória
 18. 🟢 Sem teto de salas **por jogador** (o global já existe: `MAX_SALAS`). Nada impede um cliente criar várias salas de 1 pessoa e deixar largadas até o disconnect podar. `SalaManager.js`
 
