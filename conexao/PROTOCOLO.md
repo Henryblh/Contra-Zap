@@ -73,7 +73,8 @@ Pré-condição: nenhuma (pode ser o primeiro evento da conexão — não exige
 Ack sucesso: `{ ok: true, existe: boolean }` — `nome` (depois de `trim`) já
 tem conta cadastrada? É só uma consulta, sem efeito colateral nenhum.
 Erros possíveis: `MUITAS_TENTATIVAS` (rate-limit por IP, ver abaixo) — `nome`
-ausente/não-string devolve `existe: false` em vez de erro.
+ausente/não-string, ou maior que 24 caracteres (`conexao/limites.js` — nenhuma
+conta de verdade passa disso), devolve `existe: false` em vez de erro.
 
 Rate-limit por IP (`conexao/rateLimiter.js`, 20 tentativas a cada 5 minutos
 por padrão): sem `entrar` prévio pra identificar quem pergunta, este evento
@@ -108,19 +109,35 @@ da falha que **consumiu a última unidade** da janela vem com
 `ultimaTentativa: true` além de `codigo`/`mensagem` — é o sinal pro cliente
 avisar "essa foi sua última tentativa" antes do bloqueio de verdade.
 
+`nome` maior que 24 caracteres ou `senha` maior que 72 (`conexao/limites.js`)
+também são recusados na hora, sem tocar banco nem bcrypt — nenhuma conta de
+verdade pode ter nome/senha fora desses tetos (impostos em `cadastrar`), então
+uma string gigante aqui não pode ser um login real de qualquer jeito. Mesmo
+`USUARIO_NAO_ENCONTRADO` de sempre; não é informação nova (o cliente já vê o
+`maxLength` do próprio campo). Só o MÁXIMO é checado — `entrar` nunca recusa
+por senha curta, senão contas antigas com senha menor que o mínimo de
+`cadastrar` atual parariam de autenticar.
+
 ### `cadastrar`
-Payload: `{ nome: string, senha: string }` — `nome` e `senha` precisam ter
-pelo menos 3 caracteres (espaços nas pontas do nome são descartados antes
-de checar).
+Payload: `{ nome: string, senha: string }` — `nome` precisa ter entre 3 e 24
+caracteres depois do `trim`; `senha` precisa ter entre 8 e 72 caracteres
+(limites em `conexao/limites.js`, únicos pros dois — sem teto, uma string
+gigante em qualquer um dos dois vira custo de CPU/memória de graça pra quem
+manda: hash bcrypt de um buffer enorme, linha sem limite no SQLite, JWT
+inchado, e — só `nome` — ecoado em todo broadcast de sala). O mínimo de 8 na
+senha é reforço mesmo, não só teto: só vale pra cadastro **novo** — contas
+já existentes (inclusive as de `banco.json`, senha "123") continuam
+autenticando normalmente, `entrar` nunca cobra mínimo, só o máximo de 72 (ver
+abaixo).
 Pré-condição: nenhuma (alternativa a `entrar` pra quem ainda não tem conta).
 Ack sucesso: `{ ok: true, nome, token }` — mesmo formato de `entrar`; a
 conta já nasce autenticada, não precisa de um `entrar` separado depois.
-Erros possíveis: `CADASTRO_INVALIDO` (nome/senha curtos demais),
+Erros possíveis: `CADASTRO_INVALIDO` (nome/senha fora dos limites acima),
 `NOME_JA_CADASTRADO`.
 
 ### `entrarComoConvidado`
-Payload: `{ nome: string }` — precisa ter pelo menos 3 caracteres depois de
-`trim`, mesmo mínimo de `cadastrar`.
+Payload: `{ nome: string }` — mesmo limite de `cadastrar` (3 a 24 caracteres
+depois de `trim`).
 Pré-condição: nenhuma (alternativa a `cadastrar` pra quem respondeu "não"
 à oferta de registro depois de um `verificarNome` com `existe: false`).
 Ack sucesso: `{ ok: true, nome, token }` — mesmo formato de `entrar`/

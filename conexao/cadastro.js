@@ -7,9 +7,7 @@ import { Player } from '../game/Player.js';
 import { CodigosErro } from './eventos.js';
 import { criarUsuario } from './db.js';
 import { emitirToken } from './jwt.js';
-
-const NOME_MIN = 3;
-const SENHA_MIN = 3;
+import { NOME_MIN, NOME_MAX, SENHA_MIN, SENHA_MAX } from './limites.js';
 
 export class ErroCadastro extends Error {
     constructor(codigo, mensagem) {
@@ -53,10 +51,10 @@ export async function cadastrar(nome, senha) {
 }
 
 function validarDados(nome, senha) {
-    if (typeof nome !== 'string' || nome.trim().length < NOME_MIN) {
-        throw new ErroCadastro(CodigosErro.CADASTRO_INVALIDO, `Nome precisa ter pelo menos ${NOME_MIN} caracteres.`);
+    if (typeof nome !== 'string' || nome.trim().length < NOME_MIN || nome.trim().length > NOME_MAX) {
+        throw new ErroCadastro(CodigosErro.CADASTRO_INVALIDO, `Nome precisa ter entre ${NOME_MIN} e ${NOME_MAX} caracteres.`);
     }
-    if (typeof senha !== 'string' || senha.length < SENHA_MIN) {
-        throw new ErroCadastro(CodigosErro.CADASTRO_INVALIDO, `Senha precisa ter pelo menos ${SENHA_MIN} caracteres.`);
+    if (typeof senha !== 'string' || senha.length < SENHA_MIN || senha.length > SENHA_MAX) {
+        throw new ErroCadastro(CodigosErro.CADASTRO_INVALIDO, `Senha precisa ter entre ${SENHA_MIN} e ${SENHA_MAX} caracteres.`);
     }
 }

@@ -12,8 +12,7 @@ import { proximoIdEfemero } from '../game/idEfemero.js';
 import { CodigosErro } from './eventos.js';
 import { usuarioExiste } from './db.js';
 import { emitirToken } from './jwt.js';
-
-const NOME_MIN = 3;
+import { NOME_MIN, NOME_MAX } from './limites.js';
 
 export class ErroConvidado extends Error {
     constructor(codigo, mensagem) {
@@ -28,8 +27,8 @@ export class ErroConvidado extends Error {
 // um cadastro concorrente) já tiver virado uma conta registrada desde que o
 // cliente checou com verificarNome.
 export function entrarComoConvidado(nome) {
-    if (typeof nome !== 'string' || nome.trim().length < NOME_MIN) {
-        throw new ErroConvidado(CodigosErro.CONVIDADO_INVALIDO, `Nome precisa ter pelo menos ${NOME_MIN} caracteres.`);
+    if (typeof nome !== 'string' || nome.trim().length < NOME_MIN || nome.trim().length > NOME_MAX) {
+        throw new ErroConvidado(CodigosErro.CONVIDADO_INVALIDO, `Nome precisa ter entre ${NOME_MIN} e ${NOME_MAX} caracteres.`);
     }
     const nomeLimpo = nome.trim();
 

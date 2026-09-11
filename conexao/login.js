@@ -7,6 +7,7 @@ import { Player } from '../game/Player.js';
 import { CodigosErro } from './eventos.js';
 import { buscarUsuarioPorNome, verificarSenha, HASH_DUMMY } from './db.js';
 import { emitirToken, verificarToken } from './jwt.js';
+import { NOME_MAX, SENHA_MAX } from './limites.js';
 
 export class ErroLogin extends Error {
     constructor(codigo, mensagem) {
@@ -32,6 +33,20 @@ export class ErroLogin extends Error {
 // login() só precisou de um `await` a mais pra propagar isso; quem chama
 // (socketServer.js) já lida com Promise desde então.
 export async function login(nome, senha) {
+    // Nenhuma conta de verdade pode ter nome/senha maior que esses tetos
+    // (ver cadastro.js) — rejeita rápido, sem tocar banco nem bcrypt, antes
+    // de gastar qualquer recurso com uma string gigante que não podia ser um
+    // usuário real de qualquer jeito (item 6 do backlog). Só MÁXIMO, nunca
+    // mínimo: `login()` não pode reprovar senha curta — contas antigas
+    // (inclusive as de banco.json, "123") continuam existindo com senhas
+    // mais curtas que o mínimo de cadastro atual, e mudar a régua não pode
+    // travar quem já tem conta. Mesmo código de erro de "não existe" — não é
+    // informação nova que valha vazar (ver item 3, timing oracle): só filtra
+    // lixo antes de processá-lo, não muda o que um cliente normal já via.
+    if (typeof nome !== 'string' || nome.length > NOME_MAX || (typeof senha === 'string' && senha.length > SENHA_MAX)) {
+        throw new ErroLogin(CodigosErro.USUARIO_NAO_ENCONTRADO, `Usuário "${typeof nome === 'string' ? nome : ''}" não encontrado.`);
+    }
+
     const usuario = buscarUsuarioPorNome(nome);
 
     // Sempre paga o mesmo custo de bcrypt, exista o usuário ou não — só

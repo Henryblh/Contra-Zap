@@ -11,6 +11,7 @@ import { SalaManager, ErroSala } from './SalaManager.js';
 import { ErroChat } from './chat/chat.js';
 import { EventosCliente, EventosServidor, CodigosErro } from './eventos.js';
 import { criarLimitadorDeTaxa } from './rateLimiter.js';
+import { NOME_MAX } from './limites.js';
 
 class ErroProtocolo extends Error {
     constructor(codigo, mensagem) {
@@ -133,7 +134,12 @@ export function registrarSocketServer(io, salaManager = new SalaManager(), {
                 if (!limiteVerificarNome.permitido(socket.handshake.address)) {
                     throw new ErroProtocolo(CodigosErro.MUITAS_TENTATIVAS, 'Muitas tentativas — espere um pouco antes de tentar de novo.');
                 }
-                return { existe: typeof nome === 'string' && usuarioExiste(nome.trim()) };
+                // NOME_MAX: nenhuma conta de verdade pode ter nome tão
+                // grande (ver cadastro.js) — barra antes de mandar pro banco
+                // (item 6 do backlog). Mesmo formato de resposta de sempre
+                // (nunca erro pra nome inválido aqui, só `existe: false`).
+                const existe = typeof nome === 'string' && nome.length <= NOME_MAX && usuarioExiste(nome.trim());
+                return { existe };
             });
         });
 
