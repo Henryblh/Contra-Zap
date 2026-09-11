@@ -17,6 +17,7 @@ export function criarLimitadorDeTaxa({ janelaMs, maxPorJanela }) {
     // true se `chave` ainda pode fazer mais uma chamada dentro da janela
     // atual (e já contabiliza essa chamada); false se estourou o teto —
     // quem chama decide o que fazer (recusar, logar, etc.), isto não lança.
+    // Uso típico: contar TODA chamada (ver verificarNome em socketServer.js).
     function permitido(chave) {
         const agora = Date.now();
         const registro = registros.get(chave);
@@ -30,6 +31,19 @@ export function criarLimitadorDeTaxa({ janelaMs, maxPorJanela }) {
         if (registro.contagem >= maxPorJanela) return false;
         registro.contagem++;
         return true;
+    }
+
+    // Quantas chamadas `chave` ainda tem de sobra na janela atual — SEM
+    // contabilizar nada (não muda estado). Uso típico: contar só as
+    // chamadas que FALHARAM (ver `entrar` em socketServer.js — login com
+    // senha certa não deve gastar essa cota de ninguém), consultando isto
+    // antes de decidir se tenta, e chamando `permitido` só depois de uma
+    // falha de verdade pra consumir uma unidade.
+    function restantes(chave) {
+        const agora = Date.now();
+        const registro = registros.get(chave);
+        if (!registro || agora - registro.inicioJanela >= janelaMs) return maxPorJanela;
+        return Math.max(0, maxPorJanela - registro.contagem);
     }
 
     // Tira do Map toda chave cuja janela já expirou — sem isso o Map cresce
@@ -46,5 +60,5 @@ export function criarLimitadorDeTaxa({ janelaMs, maxPorJanela }) {
         }
     }
 
-    return { permitido };
+    return { permitido, restantes };
 }

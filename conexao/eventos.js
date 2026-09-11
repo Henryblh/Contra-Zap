@@ -12,7 +12,7 @@
 
 export const EventosCliente = {
     VERIFICAR_NOME: 'verificarNome', // { nome } -> ack: { ok, existe: boolean } — pré-autenticação (não precisa de "entrar" antes); decide se o cliente pede senha pra confirmar identidade ou oferece cadastro/convidado. Rate-limit por IP (ver conexao/rateLimiter.js) — estourou, MUITAS_TENTATIVAS
-    ENTRAR: 'entrar',           // { nome, senha } -> ack: { ok, nome, token }
+    ENTRAR: 'entrar',           // { nome, senha } -> ack: { ok, nome, token }. Rate-limit de FALHA por IP (5 a cada 20min por padrão, ver conexao/rateLimiter.js) — estourou, MUITAS_TENTATIVAS sem nem tentar o login; a falha que consome a última unidade da janela vem com `ultimaTentativa: true` na resposta de erro
     CADASTRAR: 'cadastrar',     // { nome, senha } -> ack: { ok, nome, token } — já autentica, sem precisar de "entrar" depois
     ENTRAR_COMO_CONVIDADO: 'entrarComoConvidado', // { nome } -> ack: { ok, nome, token } — pseudo-guest: Player só em memória (id negativo), nunca grava no banco; nasce autenticado igual entrar/cadastrar
     RETOMAR_SESSAO: 'retomarSessao', // { token } -> ack: { ok, nome, token } — reautentica o socket a partir de um token já emitido (entrar/cadastrar/entrarComoConvidado/retomarSessao anterior), sem pedir nome/senha de novo; devolve sempre um token NOVO (mesmo id/nome, prazo renovado)

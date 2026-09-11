@@ -93,7 +93,20 @@ essa oferta.
 Payload: `{ nome: string, senha: string }`
 Pré-condição: nenhuma.
 Ack sucesso: `{ ok: true, nome, token }`.
-Erros possíveis: `USUARIO_NAO_ENCONTRADO`, `SENHA_INCORRETA`.
+Erros possíveis: `USUARIO_NAO_ENCONTRADO`, `SENHA_INCORRETA`, `MUITAS_TENTATIVAS`
+(rate-limit por IP, ver abaixo).
+
+Rate-limit de **login falhado** por IP (`conexao/rateLimiter.js`, 5 falhas a
+cada 20 minutos por padrão) — sem isto, o único freio contra brute-force de
+senha era o custo do próprio bcrypt (~70ms por tentativa). `USUARIO_NAO_ENCONTRADO`
+e `SENHA_INCORRETA` contam igual pra esse teto (as duas são "falha"; contar
+diferente vazaria se o nome existe pelo padrão de bloqueio, o mesmo problema
+do timing oracle). Um login com **sucesso** não gasta a cota de ninguém.
+Estourou o teto, o servidor nem chega a chamar `login()` — devolve
+`MUITAS_TENTATIVAS` na hora, sem pagar o custo do bcrypt. A resposta de erro
+da falha que **consumiu a última unidade** da janela vem com
+`ultimaTentativa: true` além de `codigo`/`mensagem` — é o sinal pro cliente
+avisar "essa foi sua última tentativa" antes do bloqueio de verdade.
 
 ### `cadastrar`
 Payload: `{ nome: string, senha: string }` — `nome` e `senha` precisam ter
@@ -715,7 +728,7 @@ de conexão, não do jogo), então chega igual na sala de espera e na partida.
 | `NOME_JA_CADASTRADO` | `cadastrar` com nome que já existe no banco; ou `entrarComoConvidado` com nome que virou conta registrada entre o `verificarNome` do cliente e a chamada |
 | `CONVIDADO_INVALIDO` | `entrarComoConvidado` com nome menor que 3 caracteres |
 | `TOKEN_INVALIDO` | `retomarSessao` com token que não bate a assinatura, expirou, ou veio ausente/malformado |
-| `MUITAS_TENTATIVAS` | `verificarNome` acima do teto por IP (20 a cada 5 minutos por padrão, ver `conexao/rateLimiter.js`) — espere a janela passar |
+| `MUITAS_TENTATIVAS` | `verificarNome` acima do teto por IP (20 a cada 5 minutos), **ou** `entrar` com 5 falhas (senha errada/usuário inexistente) em 20 minutos pelo mesmo IP — ver `conexao/rateLimiter.js`. Espere a janela passar |
 | `NOME_INVALIDO` | `entrarSala` com nome já em uso *nessa sala* |
 | `CONFIGURACAO_INVALIDA` | `criarSala` com `numberPlayers`/`roundStart`/`maxDeck`/`botNumber` fora do intervalo aceito (`roundStart` 1 a 10, `maxDeck` 1 a 50), `roundStart` que não cabe em `maxDeck` baralhos com a mesa cheia, `seed` que não é inteiro não-negativo, ou `chatAberto`/`randomShuffle` que não é boolean |
 | `LIMITE_DE_SALAS` | `criarSala`/`partidaRapida` com o teto global de salas simultâneas já atingido — barreira de sanidade, tenta de novo mais tarde |

@@ -31,15 +31,33 @@ class ErroProtocolo extends Error {
 const VERIFICAR_NOME_JANELA_MS = 5 * 60_000;
 const VERIFICAR_NOME_MAX = 20;
 
+// Teto de tentativas de LOGIN FALHADAS por IP — o brute-force de senha em
+// `entrar` (item 1 do backlog): sem isto, o único freio era o custo do
+// bcrypt (~70ms), o que ainda dá ~14 tentativas/s por conexão. Conta só as
+// falhas (usuário não encontrado OU senha errada — as duas contam igual, ver
+// o guard no handler: se só uma contasse, o padrão "é bloqueado ou não" viraria
+// um outro jeito de descobrir se o nome existe, o mesmo problema do item 3);
+// login com sucesso não gasta a cota de ninguém. Bem mais apertado que o de
+// verificarNome de propósito — errar senha é bem mais raro que só checar um
+// nome.
+const ENTRAR_JANELA_MS = 20 * 60_000;
+const ENTRAR_MAX = 5;
+
 // Registra todos os handlers de conexão no `io` passado. `salaManager` pode
 // ser injetado (testes) — por padrão cada chamada ganha o seu, isolado.
 export function registrarSocketServer(io, salaManager = new SalaManager(), {
     verificarNomeJanelaMs = VERIFICAR_NOME_JANELA_MS,
     verificarNomeMax = VERIFICAR_NOME_MAX,
+    entrarJanelaMs = ENTRAR_JANELA_MS,
+    entrarMax = ENTRAR_MAX,
 } = {}) {
     const limiteVerificarNome = criarLimitadorDeTaxa({
         janelaMs: verificarNomeJanelaMs,
         maxPorJanela: verificarNomeMax,
+    });
+    const limiteEntrar = criarLimitadorDeTaxa({
+        janelaMs: entrarJanelaMs,
+        maxPorJanela: entrarMax,
     });
     // socket.id -> Player, só existe depois de um `entrar` bem-sucedido.
     // Vive só em memória, por conexão: some no disconnect.
@@ -91,11 +109,35 @@ export function registrarSocketServer(io, salaManager = new SalaManager(), {
             });
         });
 
+        // Rate-limit de LOGIN FALHADO por IP (ver comentário de
+        // ENTRAR_JANELA_MS acima). O `restantes` é consultado ANTES de
+        // chamar login() — se já estourou, nem paga o custo do bcrypt (ver
+        // itens 4/5 do backlog: bcrypt síncrono trava o event loop, então
+        // barrar aqui também limita esse dano). Só falha de verdade consome
+        // uma unidade (`limiteEntrar.permitido`, dentro do catch) — login
+        // com sucesso é de graça. Se a unidade que acabou de ser consumida
+        // era a última da janela, o erro ganha `dados.ultimaTentativa` —
+        // responder() espalha isso na resposta, o cliente usa pra avisar
+        // "essa foi sua última tentativa" antes do bloqueio de verdade.
         socket.on(EventosCliente.ENTRAR, ({ nome, senha } = {}, ack) => {
             responder(ack, () => {
-                const { token, player } = login(nome, senha);
-                autenticarSocket(player);
-                return { nome: player.nome, token };
+                const ip = socket.handshake.address;
+                if (limiteEntrar.restantes(ip) <= 0) {
+                    throw new ErroProtocolo(CodigosErro.MUITAS_TENTATIVAS, 'Muitas tentativas de login — espere um pouco antes de tentar de novo.');
+                }
+                try {
+                    const { token, player } = login(nome, senha);
+                    autenticarSocket(player);
+                    return { nome: player.nome, token };
+                } catch (erro) {
+                    if (erro instanceof ErroLogin) {
+                        limiteEntrar.permitido(ip); // consome 1 unidade da falha
+                        if (limiteEntrar.restantes(ip) === 0) {
+                            erro.dados = { ultimaTentativa: true };
+                        }
+                    }
+                    throw erro;
+                }
             });
         });
 

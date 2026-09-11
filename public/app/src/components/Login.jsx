@@ -50,7 +50,13 @@ export default function Login({ onAutenticado }) {
             const resposta = await chamar(tipoDeAcao, payload ?? { nome, senha });
             onAutenticado({ nome: resposta.nome, token: resposta.token });
         } catch (erroDaChamada) {
-            setErro(erroDaChamada.message);
+            // `ultimaTentativa` só vem em `entrar` (ver rate-limit de login
+            // falhado, conexao/PROTOCOLO.md) — a falha que acabou de gastar
+            // a última tentativa da janela antes do bloqueio por IP.
+            const aviso = erroDaChamada.resposta?.ultimaTentativa
+                ? ' ⚠️ Essa era sua última tentativa — novas tentativas ficarão bloqueadas por um tempo.'
+                : '';
+            setErro(erroDaChamada.message + aviso);
         } finally {
             setCarregando(false);
         }

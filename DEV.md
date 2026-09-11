@@ -159,7 +159,7 @@ não parece compensar o ganho agora.
 Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
 
 ### 1. Segurança & autenticação
-1. 🔴 Sem rate-limit/lockout no `entrar` — o custo do bcrypt (~70ms) é o único freio contra brute force de senha. `login.js`
+1. ✅ ~~Sem rate-limit/lockout no `entrar` — o custo do bcrypt (~70ms) é o único freio contra brute force de senha.~~ Rate-limit de FALHA por IP (5 falhas/20min por padrão, reusa `conexao/rateLimiter.js` do item 2) — estourou, nem chama `login()` (poupa o bcrypt); a 5ª falha vem com `ultimaTentativa: true` na resposta, e `Login.jsx` mostra o aviso. Só falha conta — sucesso não gasta cota.
 2. ✅ ~~`verificarNome` é oráculo de enumeração de usuários: sem auth, sem limite.~~ Rate-limit por IP (20 tentativas/5min por padrão, `conexao/rateLimiter.js`), aplicado em `socketServer.js` — devolve `MUITAS_TENTATIVAS` acima do teto.
 3. 🔴 Timing oracle no `entrar`: nome inexistente responde na hora, senha errada só depois do bcrypt. Falta um compare dummy. `login.js`
 4. 🟡 `bcrypt.hashSync`/`compareSync` bloqueiam o event loop a cada login/cadastro. Migrar pra async. `db.js`
