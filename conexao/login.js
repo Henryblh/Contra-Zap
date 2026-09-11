@@ -5,7 +5,7 @@
 // isso a uma conexão real é a camada de rede.
 import { Player } from '../game/Player.js';
 import { CodigosErro } from './eventos.js';
-import { buscarUsuarioPorNome, verificarSenha } from './db.js';
+import { buscarUsuarioPorNome, verificarSenha, HASH_DUMMY } from './db.js';
 import { emitirToken, verificarToken } from './jwt.js';
 
 export class ErroLogin extends Error {
@@ -17,18 +17,46 @@ export class ErroLogin extends Error {
 }
 
 // Autentica nome/senha contra o banco e devolve { token, player }.
-// Falha: lança ErroLogin.
+// Falha: lança ErroLogin (ou devolve uma Promise rejeitada com ele, já que a
+// função é assíncrona — ver comentário abaixo).
 //
 // O id do player vem da linha do usuário no banco, então é o mesmo em todo
 // login daquela conta (diferente do token, que é novo a cada vez — ver
 // jwtid em conexao/jwt.js).
-export function login(nome, senha) {
+//
+// ASSÍNCRONA desde o item 4 do backlog de segurança: `verificarSenha`
+// (conexao/db.js) agora usa a API assíncrona do bcrypt nativo, que despacha
+// o hash pro threadpool do libuv em vez de travar a thread principal por
+// ~60-70ms a cada tentativa — sem isso, um login (de qualquer um, malicioso
+// ou não) pausava toda partida em andamento no servidor por esse tempo.
+// login() só precisou de um `await` a mais pra propagar isso; quem chama
+// (socketServer.js) já lida com Promise desde então.
+export async function login(nome, senha) {
     const usuario = buscarUsuarioPorNome(nome);
+
+    // Sempre paga o mesmo custo de bcrypt, exista o usuário ou não — só
+    // TROCA o hash comparado (o de verdade, ou o HASH_DUMMY de db.js), nunca
+    // pula a comparação. É o que fecha o timing oracle: antes disso,
+    // "usuário não encontrado" respondia na hora (só o SELECT) e "senha
+    // incorreta" só depois do bcrypt (~70ms) — dava pra descobrir quais
+    // nomes têm conta só medindo o tempo de resposta do `entrar`, sem
+    // precisar nem de `verificarNome` (ver DEV.md, item 3). A ORDEM dos
+    // throws abaixo ainda depende de `usuario` (o código de erro tem que
+    // continuar certo) — só o TEMPO até chegar aqui que não depende mais.
+    //
+    // bcrypt lança (aqui, rejeita a Promise) se `senha` não for string
+    // (payload malformado, ex.: {nome} sem senha) — antes da correção do
+    // item 3 isso só acontecia quando o usuário existia; como os dois ramos
+    // agora chamam bcrypt sempre, os dois precisam do mesmo `?? ''` pra
+    // continuar devolvendo um ErroLogin normal em vez de um throw cru (que o
+    // responder() de socketServer.js até captura, mas vira ERRO_INTERNO em
+    // vez do código certo).
+    const senhaConfere = await verificarSenha(typeof senha === 'string' ? senha : '', usuario ? usuario.senha_hash : HASH_DUMMY);
 
     if (!usuario) {
         throw new ErroLogin(CodigosErro.USUARIO_NAO_ENCONTRADO, `Usuário "${nome}" não encontrado.`);
     }
-    if (!verificarSenha(senha, usuario.senha_hash)) {
+    if (!senhaConfere) {
         throw new ErroLogin(CodigosErro.SENHA_INCORRETA, 'Senha incorreta.');
     }
 

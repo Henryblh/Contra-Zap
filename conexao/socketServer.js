@@ -59,6 +59,34 @@ export function registrarSocketServer(io, salaManager = new SalaManager(), {
         janelaMs: entrarJanelaMs,
         maxPorJanela: entrarMax,
     });
+    // ip -> Promise da última tentativa de `entrar` em andamento pra essa
+    // chave. Existe só pra fechar uma corrida que apareceu ao medir de
+    // verdade o ganho do item 4 (bcrypt assíncrono): como login() não
+    // termina mais no mesmo tick, duas tentativas de `entrar` da MESMA IP
+    // chegando quase juntas passavam as duas pelo `limiteEntrar.permitido`
+    // antes de qualquer uma resolver — furando o teto de 5 falhas/20min (e
+    // pior: um ataque de força bruta com várias conexões da mesma IP em
+    // paralelo exploraria isso de propósito), OU, no caso oposto (várias
+    // pessoas na MESMA rede logando ao mesmo tempo, ex.: mesmo wifi), várias
+    // reservas simultâneas estourando o teto sem nenhuma ter dado errado
+    // ainda — bloqueando gente de verdade por coincidência de horário.
+    // `serializarPorIp` (abaixo) enfileira as tentativas da MESMA IP uma
+    // atrás da outra (cada uma só começa quando a anterior termina) sem
+    // travar NADA mais: outra IP, ou qualquer outro evento desta mesma IP
+    // (jogarCarta, apostar...), roda em paralelo normalmente — só as
+    // tentativas de `entrar` entre si, da mesma IP, esperam a vez.
+    const filaEntrarPorIp = new Map();
+    function serializarPorIp(ip, tarefa) {
+        const vez = (filaEntrarPorIp.get(ip) ?? Promise.resolve()).catch(() => {}).then(tarefa);
+        filaEntrarPorIp.set(ip, vez);
+        // Sai do Map quando não sobra mais ninguém enfileirado atrás desta
+        // tentativa pra esta IP — sem isso o Map cresceria uma entrada por
+        // IP que já tentou logar alguma vez e nunca encolheria.
+        vez.catch(() => {}).finally(() => {
+            if (filaEntrarPorIp.get(ip) === vez) filaEntrarPorIp.delete(ip);
+        });
+        return vez;
+    }
     // socket.id -> Player, só existe depois de um `entrar` bem-sucedido.
     // Vive só em memória, por conexão: some no disconnect.
     const jogadorPorSocket = new Map();
@@ -110,40 +138,43 @@ export function registrarSocketServer(io, salaManager = new SalaManager(), {
         });
 
         // Rate-limit de LOGIN FALHADO por IP (ver comentário de
-        // ENTRAR_JANELA_MS acima). O `restantes` é consultado ANTES de
-        // chamar login() — se já estourou, nem paga o custo do bcrypt (ver
-        // itens 4/5 do backlog: bcrypt síncrono trava o event loop, então
-        // barrar aqui também limita esse dano). Só falha de verdade consome
-        // uma unidade (`limiteEntrar.permitido`, dentro do catch) — login
-        // com sucesso é de graça. Se a unidade que acabou de ser consumida
-        // era a última da janela, o erro ganha `dados.ultimaTentativa` —
-        // responder() espalha isso na resposta, o cliente usa pra avisar
-        // "essa foi sua última tentativa" antes do bloqueio de verdade.
+        // ENTRAR_JANELA_MS acima). Desde que login() ficou assíncrono (item
+        // 4 — bcrypt não trava mais a thread principal), a reserva da
+        // unidade precisa acontecer ANTES do `await login()`, num único
+        // passo síncrono (`limiteEntrar.permitido`) — se checasse só
+        // "restantes > 0" antes e consumisse só depois da falha (do outro
+        // lado do await), duas tentativas da MESMA chave chegando quase
+        // juntas passariam as duas pelo check antes de qualquer uma
+        // consumir, furando o teto de 5. Reservando já de cara, o login com
+        // SUCESSO devolve a unidade (`limiteEntrar.devolver`) — só falha de
+        // verdade deveria gastar a cota. Se a unidade que ficou consumida
+        // (por ter falhado) era a última da janela, o erro ganha
+        // `dados.ultimaTentativa` — responder() espalha isso na resposta, o
+        // cliente usa pra avisar "essa foi sua última tentativa" antes do
+        // bloqueio de verdade.
         socket.on(EventosCliente.ENTRAR, ({ nome, senha } = {}, ack) => {
-            responder(ack, () => {
-                const ip = socket.handshake.address;
-                if (limiteEntrar.restantes(ip) <= 0) {
+            const ip = socket.handshake.address;
+            responder(ack, () => serializarPorIp(ip, async () => {
+                if (!limiteEntrar.permitido(ip)) {
                     throw new ErroProtocolo(CodigosErro.MUITAS_TENTATIVAS, 'Muitas tentativas de login — espere um pouco antes de tentar de novo.');
                 }
                 try {
-                    const { token, player } = login(nome, senha);
+                    const { token, player } = await login(nome, senha);
                     autenticarSocket(player);
+                    limiteEntrar.devolver(ip); // deu certo — não gasta a cota de ninguém
                     return { nome: player.nome, token };
                 } catch (erro) {
-                    if (erro instanceof ErroLogin) {
-                        limiteEntrar.permitido(ip); // consome 1 unidade da falha
-                        if (limiteEntrar.restantes(ip) === 0) {
-                            erro.dados = { ultimaTentativa: true };
-                        }
+                    if (erro instanceof ErroLogin && limiteEntrar.restantes(ip) === 0) {
+                        erro.dados = { ultimaTentativa: true };
                     }
                     throw erro;
                 }
-            });
+            }));
         });
 
         socket.on(EventosCliente.CADASTRAR, ({ nome, senha } = {}, ack) => {
-            responder(ack, () => {
-                const { token, player } = cadastrar(nome, senha);
+            responder(ack, async () => {
+                const { token, player } = await cadastrar(nome, senha);
                 autenticarSocket(player);
                 return { nome: player.nome, token };
             });
@@ -608,10 +639,17 @@ function ligarControllerASala(io, salaManager, sala, socketPorJogador, salaPorSo
 // ErroSessao, ErroSala, ErroChat, ErroProtocolo) viram
 // resposta de erro normal; qualquer outra exceção é logada no servidor e
 // devolvida como ERRO_INTERNO — nunca deixa a exceção derrubar o socket.
-function responder(ack, acao) {
+//
+// ASSÍNCRONA (desde o item 4 do backlog: login()/cadastrar() agora usam
+// bcrypt assíncrono) — `await acao()` funciona igual pra uma `acao` síncrona
+// (a maioria dos handlers) e pra uma assíncrona (ENTRAR/CADASTRAR): `await`
+// num valor que não é Promise só resolve com ele na hora, sem esperar nada.
+// Um `throw` síncrono dentro de `acao` continua caindo no mesmo catch de
+// sempre, Promise ou não.
+async function responder(ack, acao) {
     if (typeof ack !== 'function') return; // cliente não pediu resposta, nada a fazer
     try {
-        const resultado = acao();
+        const resultado = await acao();
         ack({ ok: true, ...resultado });
     } catch (erro) {
         if (erro instanceof ErroLogin || erro instanceof ErroCadastro || erro instanceof ErroConvidado || erro instanceof ErroSessao || erro instanceof ErroSala || erro instanceof ErroChat || erro instanceof ErroProtocolo) {

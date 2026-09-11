@@ -60,5 +60,17 @@ export function criarLimitadorDeTaxa({ janelaMs, maxPorJanela }) {
         }
     }
 
-    return { permitido, restantes };
+    // Devolve 1 unidade pra `chave` na janela atual — pro caso de "reservei
+    // antes de uma operação assíncrona, mas ela deu certo e não deveria ter
+    // gastado a cota" (ver `entrar` em socketServer.js: reserva a unidade
+    // ANTES do `await login()`, pra duas tentativas concorrentes da mesma
+    // chave não passarem as duas pelo teto entre o check e o consumo — e
+    // devolve se o login deu certo, já que só falha deveria contar). Não
+    // ressuscita uma janela expirada nem deixa a contagem ficar negativa.
+    function devolver(chave) {
+        const registro = registros.get(chave);
+        if (registro && registro.contagem > 0) registro.contagem--;
+    }
+
+    return { permitido, restantes, devolver };
 }

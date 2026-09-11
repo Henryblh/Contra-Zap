@@ -2,8 +2,22 @@
 // Persistência de usuários em SQLite (arquivo `banco.sqlite` na raiz do
 // projeto). Senha nunca é guardada em texto puro — só o hash (bcrypt).
 // Única peça de conexao/ que sabe SQL: login.js só chama as funções daqui.
+//
+// `bcrypt` (binding nativo em C++), não `bcryptjs` (JS puro) — troca feita
+// pro item 4/5 do backlog de segurança. As duas funções que rodam por
+// requisição de verdade (`criarUsuario` no cadastro, `verificarSenha` no
+// login) usam a API ASSÍNCRONA da lib (`bcrypt.hash`/`bcrypt.compare`, sem
+// `Sync`): por baixo dos panos isso despacha o hash pro threadpool do libuv
+// (um pool de threads do sistema operacional que o próprio Node já mantém
+// pra I/O/crypto pesado) — o custo do bcrypt (~60-70ms) deixa de travar a
+// thread principal, então login/cadastro concorrentes não pausam mais toda
+// partida em andamento no servidor enquanto processam. As duas funções que
+// só rodam UMA VEZ no boot (`semearSeVazio`, o `HASH_DUMMY` do timing oracle)
+// continuam com a versão `Sync`: nesse caso não tem ninguém esperando, o
+// custo não se repete por requisição, e `semearSeVazio` roda dentro de uma
+// `db.transaction()` do better-sqlite3, que não suporta callback assíncrono.
 import Database from 'better-sqlite3';
-import bcrypt from 'bcryptjs';
+import bcrypt from 'bcrypt';
 import { existsSync, readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import path from 'node:path';
@@ -57,12 +71,29 @@ export function usuarioExiste(nome) {
     return buscarUsuarioPorNome(nome) !== null;
 }
 
-export function criarUsuario(nome, senha) {
-    const senha_hash = bcrypt.hashSync(senha, SALT_ROUNDS);
+// Assíncrona de propósito (ver comentário do topo do arquivo) — só o hash
+// (`bcrypt.hash`) sai da thread principal; o INSERT em si já é rápido o
+// bastante (SQLite local, tabela pequena) pra não precisar da mesma
+// preocupação, e better-sqlite3 não tem versão assíncrona de qualquer jeito.
+export async function criarUsuario(nome, senha) {
+    const senha_hash = await bcrypt.hash(senha, SALT_ROUNDS);
     const info = db.prepare('INSERT INTO usuarios (nome, senha_hash) VALUES (?, ?)').run(nome, senha_hash);
     return { id: info.lastInsertRowid, nome };
 }
 
+// Assíncrona de propósito (ver comentário do topo do arquivo) — devolve uma
+// Promise<boolean> em vez de comparar na hora.
 export function verificarSenha(senha, senhaHash) {
-    return bcrypt.compareSync(senha, senhaHash);
+    return bcrypt.compare(senha, senhaHash);
 }
+
+// Hash bcrypt de uma senha fixa que ninguém usa de verdade pra autenticar —
+// existe só pra login() (conexao/login.js) ter algo pra comparar quando o
+// usuário NÃO existe, gastando o mesmo custo de bcrypt que compararia contra
+// um hash de verdade. Sem isto, "usuário não encontrado" respondia na hora
+// (só o SELECT) e "senha incorreta" só depois do bcrypt — um timing oracle
+// que entrega quais nomes têm conta sem precisar nem de `verificarNome` (ver
+// DEV.md, item 3). `Sync` aqui é o caso certo pra `Sync`: roda UMA VEZ, no
+// import do módulo (antes de qualquer requisição de verdade existir pra
+// travar) — não o comparador em si, que continua assíncrono acima.
+export const HASH_DUMMY = bcrypt.hashSync('nenhuma-conta-usa-esta-senha', SALT_ROUNDS);

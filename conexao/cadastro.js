@@ -27,13 +27,17 @@ export class ErroCadastro extends Error {
 // violação pra NOME_JA_CADASTRADO aqui. Checar antes e inserir depois
 // deixaria uma janela onde dois cadastros com o mesmo nome ao mesmo tempo
 // passariam os dois pela checagem antes de colidir no insert.
-export function cadastrar(nome, senha) {
+//
+// ASSÍNCRONA desde o item 4 do backlog de segurança: `criarUsuario`
+// (conexao/db.js) usa a API assíncrona do bcrypt nativo pro hash da senha —
+// ver o comentário de login.js pro porquê.
+export async function cadastrar(nome, senha) {
     validarDados(nome, senha);
     const nomeLimpo = nome.trim();
 
     let usuario;
     try {
-        usuario = criarUsuario(nomeLimpo, senha);
+        usuario = await criarUsuario(nomeLimpo, senha);
     } catch (erro) {
         if (erro.code === 'SQLITE_CONSTRAINT_UNIQUE') {
             throw new ErroCadastro(CodigosErro.NOME_JA_CADASTRADO, `Já existe uma conta com o nome "${nomeLimpo}".`);
