@@ -10,6 +10,7 @@ import { usuarioExiste } from './db.js';
 import { SalaManager, ErroSala } from './SalaManager.js';
 import { ErroChat } from './chat/chat.js';
 import { EventosCliente, EventosServidor, CodigosErro } from './eventos.js';
+import { criarLimitadorDeTaxa } from './rateLimiter.js';
 
 class ErroProtocolo extends Error {
     constructor(codigo, mensagem) {
@@ -19,9 +20,27 @@ class ErroProtocolo extends Error {
     }
 }
 
+// Teto de tentativas de verificarNome por IP (ver conexao/rateLimiter.js) —
+// esse evento roda pré-autenticação (não tem player.id pra chavear) e sem
+// limite nenhum é oráculo de enumeração de contas (varre nomes e descobre
+// quais existem). Generoso pra uso real: Login.jsx só chama isso uma vez por
+// clique em "Continuar", nunca por tecla digitada — um humano de verdade não
+// chega nem perto disso numa sessão inteira. Injetável (segundo parâmetro de
+// registrarSocketServer) pelo mesmo motivo dos tempos de SalaManager: testes
+// que martelam isso não devem esbarrar no teto pensado pra gente de verdade.
+const VERIFICAR_NOME_JANELA_MS = 5 * 60_000;
+const VERIFICAR_NOME_MAX = 20;
+
 // Registra todos os handlers de conexão no `io` passado. `salaManager` pode
 // ser injetado (testes) — por padrão cada chamada ganha o seu, isolado.
-export function registrarSocketServer(io, salaManager = new SalaManager()) {
+export function registrarSocketServer(io, salaManager = new SalaManager(), {
+    verificarNomeJanelaMs = VERIFICAR_NOME_JANELA_MS,
+    verificarNomeMax = VERIFICAR_NOME_MAX,
+} = {}) {
+    const limiteVerificarNome = criarLimitadorDeTaxa({
+        janelaMs: verificarNomeJanelaMs,
+        maxPorJanela: verificarNomeMax,
+    });
     // socket.id -> Player, só existe depois de um `entrar` bem-sucedido.
     // Vive só em memória, por conexão: some no disconnect.
     const jogadorPorSocket = new Map();
@@ -60,8 +79,16 @@ export function registrarSocketServer(io, salaManager = new SalaManager()) {
         // Pré-autenticação: não exige "entrar" antes (é o que decide se o
         // cliente vai pedir senha pra confirmar identidade, ou oferecer
         // cadastro/convidado). Nome vazio/ausente não é erro, só nunca existe.
+        // Rate-limit por IP (ver comentário de VERIFICAR_NOME_JANELA_MS
+        // acima) — sem isto, dava pra varrer uma lista de nomes e descobrir
+        // quais são contas de verdade sem limite nenhum.
         socket.on(EventosCliente.VERIFICAR_NOME, ({ nome } = {}, ack) => {
-            responder(ack, () => ({ existe: typeof nome === 'string' && usuarioExiste(nome.trim()) }));
+            responder(ack, () => {
+                if (!limiteVerificarNome.permitido(socket.handshake.address)) {
+                    throw new ErroProtocolo(CodigosErro.MUITAS_TENTATIVAS, 'Muitas tentativas — espere um pouco antes de tentar de novo.');
+                }
+                return { existe: typeof nome === 'string' && usuarioExiste(nome.trim()) };
+            });
         });
 
         socket.on(EventosCliente.ENTRAR, ({ nome, senha } = {}, ack) => {

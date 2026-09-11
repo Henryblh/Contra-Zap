@@ -11,7 +11,7 @@
 // separado — o erro vem na própria resposta do ack. Ver PROTOCOLO.md.
 
 export const EventosCliente = {
-    VERIFICAR_NOME: 'verificarNome', // { nome } -> ack: { ok, existe: boolean } — pré-autenticação (não precisa de "entrar" antes); decide se o cliente pede senha pra confirmar identidade ou oferece cadastro/convidado
+    VERIFICAR_NOME: 'verificarNome', // { nome } -> ack: { ok, existe: boolean } — pré-autenticação (não precisa de "entrar" antes); decide se o cliente pede senha pra confirmar identidade ou oferece cadastro/convidado. Rate-limit por IP (ver conexao/rateLimiter.js) — estourou, MUITAS_TENTATIVAS
     ENTRAR: 'entrar',           // { nome, senha } -> ack: { ok, nome, token }
     CADASTRAR: 'cadastrar',     // { nome, senha } -> ack: { ok, nome, token } — já autentica, sem precisar de "entrar" depois
     ENTRAR_COMO_CONVIDADO: 'entrarComoConvidado', // { nome } -> ack: { ok, nome, token } — pseudo-guest: Player só em memória (id negativo), nunca grava no banco; nasce autenticado igual entrar/cadastrar
@@ -93,5 +93,6 @@ export const CodigosErro = {
     NOME_JA_CADASTRADO: 'NOME_JA_CADASTRADO',         // cadastrar: nome já existe no banco; ou entrarComoConvidado: nome virou conta registrada entre o verificarNome e esta chamada (corrida com um cadastro concorrente)
     CONVIDADO_INVALIDO: 'CONVIDADO_INVALIDO',         // entrarComoConvidado: nome fora do tamanho mínimo aceito
     TOKEN_INVALIDO: 'TOKEN_INVALIDO',                 // retomarSessao com token que não bate a assinatura, expirou, ou veio ausente/malformado
+    MUITAS_TENTATIVAS: 'MUITAS_TENTATIVAS',           // teto de tentativas por IP estourado num evento pré-autenticação (ver conexao/rateLimiter.js) — espere a janela passar
     ERRO_INTERNO: 'ERRO_INTERNO',                     // exceção inesperada no servidor (não deveria acontecer)
 };

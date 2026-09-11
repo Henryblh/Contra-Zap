@@ -72,8 +72,15 @@ Pré-condição: nenhuma (pode ser o primeiro evento da conexão — não exige
 `entrar` antes, nem autentica o socket).
 Ack sucesso: `{ ok: true, existe: boolean }` — `nome` (depois de `trim`) já
 tem conta cadastrada? É só uma consulta, sem efeito colateral nenhum.
-Erros possíveis: nenhum — `nome` ausente/não-string devolve `existe: false`
-em vez de erro.
+Erros possíveis: `MUITAS_TENTATIVAS` (rate-limit por IP, ver abaixo) — `nome`
+ausente/não-string devolve `existe: false` em vez de erro.
+
+Rate-limit por IP (`conexao/rateLimiter.js`, 20 tentativas a cada 5 minutos
+por padrão): sem `entrar` prévio pra identificar quem pergunta, este evento
+seria um oráculo livre de enumeração de contas (varrer uma lista de nomes e
+descobrir quais existem). O teto é generoso pra uso real — o cliente só
+chama isto uma vez por clique em "Continuar" no login, nunca por tecla
+digitada.
 
 Existe pra decidir, no fluxo de login em etapas (estilo Pokémon Showdown), o
 que o cliente pede a seguir: se `existe`, pede senha pra confirmar
@@ -708,6 +715,7 @@ de conexão, não do jogo), então chega igual na sala de espera e na partida.
 | `NOME_JA_CADASTRADO` | `cadastrar` com nome que já existe no banco; ou `entrarComoConvidado` com nome que virou conta registrada entre o `verificarNome` do cliente e a chamada |
 | `CONVIDADO_INVALIDO` | `entrarComoConvidado` com nome menor que 3 caracteres |
 | `TOKEN_INVALIDO` | `retomarSessao` com token que não bate a assinatura, expirou, ou veio ausente/malformado |
+| `MUITAS_TENTATIVAS` | `verificarNome` acima do teto por IP (20 a cada 5 minutos por padrão, ver `conexao/rateLimiter.js`) — espere a janela passar |
 | `NOME_INVALIDO` | `entrarSala` com nome já em uso *nessa sala* |
 | `CONFIGURACAO_INVALIDA` | `criarSala` com `numberPlayers`/`roundStart`/`maxDeck`/`botNumber` fora do intervalo aceito (`roundStart` 1 a 10, `maxDeck` 1 a 50), `roundStart` que não cabe em `maxDeck` baralhos com a mesa cheia, `seed` que não é inteiro não-negativo, ou `chatAberto`/`randomShuffle` que não é boolean |
 | `LIMITE_DE_SALAS` | `criarSala`/`partidaRapida` com o teto global de salas simultâneas já atingido — barreira de sanidade, tenta de novo mais tarde |
