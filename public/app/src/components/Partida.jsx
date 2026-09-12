@@ -12,13 +12,18 @@ import { MENSAGENS_CHAT, CHAT_COOLDOWN_MS } from '../../../../conexao/chat/mensa
 // completa de eventos e payloads.
 // `reconexao`, quando presente, vem do ack de "reconectar" (chamado pela
 // Lobby depois de sair de uma partida em andamento) — { mao, cartasRodada,
-// suaVez, jogadorDaVez, suaVezDaAposta, jogadorDaVezAposta } — e é o que
-// permite montar esta tela já em andamento, sem esperar um
-// novaRodadaIniciada/suaMao/turnoAposta que já aconteceram antes da gente
-// voltar (a partida não pausa enquanto o assento está no automático). As
-// duas frentes (aposta e carta) nunca vêm preenchidas ao mesmo tempo — no
-// máximo uma delas reflete a espera de verdade, a outra some sozinha assim
-// que a fase seguinte começar de verdade.
+// numeroRodada, maosReveladas, mesa, vira, viraValor, apostas, eliminados,
+// desconectados, ultimoPlacar, suaVez, jogadorDaVez, suaVezDaAposta,
+// jogadorDaVezAposta, finalizada, vencedor } — e é o que permite montar esta
+// tela inteira já em andamento (mesa da vaza atual, manilha, apostas dos
+// outros, placar, quem morreu, quem virou bot), sem esperar os
+// novaRodadaIniciada/suaMao/manilhaVirada/turnoAposta/... que já aconteceram
+// antes da gente voltar (a partida não pausa enquanto o assento está no
+// automático). As duas frentes (aposta e carta) nunca vêm preenchidas ao
+// mesmo tempo — no máximo uma delas reflete a espera de verdade, a outra
+// some sozinha assim que a fase seguinte começar de verdade. O mesmo payload
+// alimenta o ressincronizar() de depois de uma queda de rede (ver o efeito
+// mais abaixo).
 
 // Quanto tempo a vaza encerrada fica congelada na mesa (com a carta
 // vencedora destacada) antes de limpar pra próxima — só pra dar tempo de
@@ -91,11 +96,12 @@ const MAPA_CURV_X = mapaCurvatura('x');
 const MAPA_CURV_Y = mapaCurvatura('y');
 
 export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, reconexao, chatAberto, meuNome, onSairDaSala, onSairDaPartida, onEntrouNaSala }) {
-    // Semeado do ack de criarSala/entrarSala, não do broadcast de
-    // listaJogadores — o primeiro broadcast sai antes desta tela existir
-    // (e o listener abaixo com ele), então dependeria de um evento que já
-    // passou. Broadcasts seguintes (mais gente entrando) chegam normal.
-    const [jogadores, setJogadores] = useState(jogadoresIniciais ?? []);
+    // Semeado do ack de criarSala/entrarSala (ou de reconectar, no caminho de
+    // reconexão — o ack de reconectar não dispara listaJogadores), não do
+    // broadcast de listaJogadores — o primeiro broadcast sai antes desta tela
+    // existir (e o listener abaixo com ele), então dependeria de um evento que
+    // já passou. Broadcasts seguintes (mais gente entrando) chegam normal.
+    const [jogadores, setJogadores] = useState(jogadoresIniciais ?? reconexao?.jogadores ?? []);
     // Semeado do ack de criarSala/entrarSala (não do broadcast de
     // partidaIniciandoEm): quando os bots — ou a última entrada — lotam a
     // sala, esse broadcast sai antes desta tela existir. Broadcasts
@@ -114,7 +120,7 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
     const [valorAposta, setValorAposta] = useState('');
     const [cartasRodada, setCartasRodada] = useState(reconexao?.cartasRodada ?? 0);
     const [jogadorDaVez, setJogadorDaVez] = useState(reconexao?.jogadorDaVez ?? null);
-    const [mesa, setMesa] = useState([]);
+    const [mesa, setMesa] = useState(reconexao?.mesa ?? []);
     // Vaza recém-encerrada, segurada na tela por PAUSA_VAZA_MS antes de
     // limpar a mesa — { vencedor: string|null, carta: string|null }, ou
     // null quando não tem pausa rolando. O ref espelha o mesmo valor de
@@ -150,9 +156,11 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
     const [scanlines, setScanlines] = useState(0);
     const [scanlinePasso, setScanlinePasso] = useState(3);
     const [aberracao, setAberracao] = useState(0);
-    const [vira, setVira] = useState(null);
-    const [ultimoPlacar, setUltimoPlacar] = useState([]);
-    const [vencedor, setVencedor] = useState(null);
+    const [vira, setVira] = useState(
+        reconexao?.vira ? { carta: reconexao.vira, valor: reconexao.viraValor } : null
+    );
+    const [ultimoPlacar, setUltimoPlacar] = useState(reconexao?.ultimoPlacar ?? []);
+    const [vencedor, setVencedor] = useState(reconexao?.vencedor ?? null);
     // { novaSalaId, jogador } quando o adm da sala chama jogarDeNovo depois
     // do fim da partida — ver convidadoParaRevanche em PROTOCOLO.md. null
     // enquanto ninguém chamou (ou depois que este jogador já respondeu).
@@ -165,13 +173,15 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
     // pra debugar de relance quem já apostou e quem já morreu). `apostas`
     // zera a cada novaRodadaIniciada; `eliminados` só cresce (eliminação é
     // definitiva na partida).
-    const [apostas, setApostas] = useState({});
-    const [eliminados, setEliminados] = useState([]);
+    const [apostas, setApostas] = useState(
+        () => Object.fromEntries((reconexao?.apostas ?? []).map((a) => [a.jogador, a.aposta]))
+    );
+    const [eliminados, setEliminados] = useState(reconexao?.eliminados ?? []);
     // Nomes de quem está jogando no automático agora (jogadorExpulsoPorInatividade
     // sem um jogadorReconectou depois) — flag visual pro front marcar "isso
     // aqui é um bot temporário", diferente de `eliminados` (não zera sozinha,
     // só sai daqui de novo se reconectar).
-    const [desconectados, setDesconectados] = useState([]);
+    const [desconectados, setDesconectados] = useState(reconexao?.desconectados ?? []);
     // Chat da sala (ver conexao/PROTOCOLO.md). `mensagensChat` acumula o que
     // chega em chatMensagem (broadcast, inclui o que eu mesmo mandei).
     // `cooldownAte` é o timestamp até quando os botões de envio ficam
@@ -340,6 +350,14 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
                 setDesconectados((anterior) => anterior.filter((nome) => nome !== p.jogador));
                 registrar(`🔌 ${p.jogador} reconectou`);
             },
+            jogadorDesistiu(p) {
+                if (!daSala(p)) return;
+                // Desistência definitiva (ver DESISTIR em PROTOCOLO.md): o
+                // assento joga como bot e será eliminado na virada de rodada
+                // (aí vira 💀 pelo jogadoresEliminados). Até lá, marca 🤖.
+                setDesconectados((anterior) => (anterior.includes(p.jogador) ? anterior : [...anterior, p.jogador]));
+                registrar(`🏳️ ${p.jogador} desistiu da partida`);
+            },
             chatMensagem(p) {
                 if (!daSala(p)) return;
                 setMensagensChat((anterior) => [
@@ -487,11 +505,22 @@ export default function Partida({ salaId, jogadoresIniciais, segundosIniciais, r
         async function ressincronizar() {
             try {
                 const resposta = await chamar('reconectar', { salaId });
+                if (resposta.jogadores) setJogadores(resposta.jogadores);
                 setMao(resposta.mao);
                 setCartasRodada(resposta.cartasRodada);
                 setMaosReveladas(Object.fromEntries((resposta.maosReveladas ?? []).map((m) => [m.jogador, m.mao])));
                 setJogadorDaVez(resposta.jogadorDaVez);
                 setJogadorDaVezAposta(resposta.jogadorDaVezAposta);
+                setMesa(resposta.mesa ?? []);
+                setVira(resposta.vira ? { carta: resposta.vira, valor: resposta.viraValor } : null);
+                setApostas(Object.fromEntries((resposta.apostas ?? []).map((a) => [a.jogador, a.aposta])));
+                // eliminados só cresce (eliminação é definitiva) — une com o
+                // que já tínhamos; desconectados é o oposto: alguém pode ter
+                // voltado enquanto estávamos fora, então o servidor manda.
+                setEliminados((anterior) => [...new Set([...anterior, ...(resposta.eliminados ?? [])])]);
+                setDesconectados(resposta.desconectados ?? []);
+                setUltimoPlacar(resposta.ultimoPlacar ?? []);
+                if (resposta.vencedor) setVencedor(resposta.vencedor);
                 setLog((anterior) => [...anterior.slice(-49), '🔌 Conexão restabelecida — sincronizado com a partida']);
             } catch {
                 // melhor esforço — se a sala não existir mais, ou a vaga já

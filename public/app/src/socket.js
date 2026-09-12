@@ -16,15 +16,14 @@ export const socket = io();
 if (typeof window !== 'undefined') window.__socket = socket; // debug via console
 
 // Estado de conexão do socket, pra dar feedback visual quando a rede cai
-// (ver App.jsx) — antes disso, a única pista de uma queda era uma ação
-// qualquer falhando sem explicação nenhuma. `pingInterval`/`pingTimeout`
-// no servidor (Server.js) fazem o `disconnect` chegar rápido (~25s no pior
-// caso). Reconexão automática é padrão do socket.io-client (dispara
-// `connect` nesta mesma instância de novo) — mas isso só reabre o
-// transporte: o servidor trata como um socket totalmente novo, sem sessão
-// nenhuma. Então "o socket reconectou" é só "a rede voltou", não "o jogo
-// continuou sozinho" — é App.jsx quem reage a isso chamando `retomarSessao`
-// de novo (ver sessao.js), pra reautenticar sem pedir nome/senha.
+// (ver App.jsx). `pingInterval`/`pingTimeout` no servidor (Server.js) fazem
+// o `disconnect` chegar rápido (~25s no pior caso). Reconexão automática é
+// padrão do socket.io-client (dispara `connect` nesta mesma instância de
+// novo) — mas isso só reabre o transporte: o servidor trata como um socket
+// totalmente novo, sem sessão nenhuma. Então "o socket reconectou" é só "a
+// rede voltou", não "o jogo continuou sozinho" — é App.jsx quem reage a
+// isso chamando `retomarSessao` de novo (ver sessao.js), pra reautenticar
+// sem pedir nome/senha.
 let conectado = socket.connected;
 const ouvintesDeConexao = new Set();
 
@@ -53,11 +52,22 @@ export function obterConexao() {
 // Chama um evento do protocolo (ver conexao/PROTOCOLO.md) e devolve o ack;
 // lança se o servidor respondeu { ok: false, ... }. Mesmo padrão do
 // Main2.js (conexao/PROTOCOLO.md é o contrato, isso aqui só fala com ele).
+// O Error lançado carrega `.codigo` (um CodigosErro) e `.resposta` (o ack
+// cru, com qualquer campo extra — ex.: JA_EM_PARTIDA manda `.resposta.salaId`),
+// além da `.message` já formatada, pra quem precisa reagir a um código
+// específico sem parsear a string.
 export function chamar(evento, payload = {}) {
     return new Promise((resolve, reject) => {
         socket.emit(evento, payload, (resposta) => {
-            if (resposta?.ok) resolve(resposta);
-            else reject(new Error(`[${resposta?.codigo ?? 'ERRO_DESCONHECIDO'}] ${resposta?.mensagem ?? 'Erro sem detalhes.'}`));
+            if (resposta?.ok) {
+                resolve(resposta);
+                return;
+            }
+            const codigo = resposta?.codigo ?? 'ERRO_DESCONHECIDO';
+            const erro = new Error(`[${codigo}] ${resposta?.mensagem ?? 'Erro sem detalhes.'}`);
+            erro.codigo = codigo;
+            erro.resposta = resposta ?? null;
+            reject(erro);
         });
     });
 }

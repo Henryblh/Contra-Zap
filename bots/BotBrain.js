@@ -24,7 +24,7 @@
 // treino porque "assento fantasma" == jogador ja eliminado, que a rede viu
 // muito; 5/6 nao), mas e melhor que o heuristico burro de "ultima carta /
 // aposta 1" -- que agora so sobra quando os modelos nem carregam ou nao ha
-// `controller`. Uma rede dedicada a 5-6 fica pro futuro (ver README "O que
+// `controller`. Uma rede dedicada a 5-6 fica pro futuro (ver DEV.md, "O que
 // falta fazer").
 import { RedeAtorCritico, argmaxMascarado } from './nn.js';
 
@@ -93,7 +93,7 @@ function ordemRelativa(jogadores, euId) {
 //     assento e descarta o resto. Aqui sim e fora da distribuicao (a rede
 //     nunca viu 5-6 na mesa); perde a informacao dos assentos mais
 //     distantes, mas nao quebra e joga algo coerente. Rede propria pra 5-6
-//     ainda esta por fazer (ver README).
+//     ainda esta por fazer (ver DEV.md).
 function ajustarParaModelo(ordemRel) {
     const ajustada = ordemRel.slice(0, SEATS_MODELO);
     while (ajustada.length < SEATS_MODELO) ajustada.push(null);

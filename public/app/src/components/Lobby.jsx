@@ -14,6 +14,27 @@ export default function Lobby({ meuNome, salaParaReconectar, onEntrouNaSala, onR
     const [chatAberto, setChatAberto] = useState(false);
     const [reconectando, setReconectando] = useState(false);
     const [erro, setErro] = useState(null);
+    // Preenchido quando uma tentativa de criar/entrar numa sala volta
+    // JA_EM_PARTIDA: { salaAtivaId, retomar } — `retomar` re-executa a ação
+    // original (criar sala / entrar / partida rápida) depois que o jogador
+    // resolver a partida antiga (reconectando nela ou desistindo dela).
+    const [colisaoPartida, setColisaoPartida] = useState(null);
+
+    // Roda `acao` (uma das entradas de sala) e, se o servidor barrar com
+    // JA_EM_PARTIDA, guarda tudo pra oferecer reconectar/desistir em vez de
+    // só jogar o erro na tela. Qualquer outro erro é mostrado normalmente.
+    async function tentarEntrada(acao) {
+        setErro(null);
+        try {
+            await acao();
+        } catch (erroDaChamada) {
+            if (erroDaChamada.codigo === 'JA_EM_PARTIDA') {
+                setColisaoPartida({ salaAtivaId: erroDaChamada.resposta?.salaId, retomar: acao });
+            } else {
+                setErro(erroDaChamada.message);
+            }
+        }
+    }
 
     async function atualizarLista() {
         setErro(null);
@@ -31,20 +52,16 @@ export default function Lobby({ meuNome, salaParaReconectar, onEntrouNaSala, onR
         return () => clearInterval(intervalo);
     }, []);
 
-    async function partidaRapida() {
-        setErro(null);
-        try {
+    function partidaRapida() {
+        return tentarEntrada(async () => {
             const resposta = await chamar('partidaRapida');
             onEntrouNaSala(resposta.salaId, resposta.jogadores, resposta.segundosParaIniciar, resposta.chatAberto);
-        } catch (erroDaChamada) {
-            setErro(erroDaChamada.message);
-        }
+        });
     }
 
-    async function criarSala(evento) {
+    function criarSala(evento) {
         evento.preventDefault();
-        setErro(null);
-        try {
+        return tentarEntrada(async () => {
             const resposta = await chamar('criarSala', {
                 numberPlayers: Number(numberPlayers),
                 roundStart: Number(roundStart),
@@ -56,19 +73,43 @@ export default function Lobby({ meuNome, salaParaReconectar, onEntrouNaSala, onR
             // dependeria de um broadcast que já passou. Mesma coisa pro
             // segundosParaIniciar quando os bots já lotaram a sala.
             onEntrouNaSala(resposta.salaId, resposta.jogadores, resposta.segundosParaIniciar, resposta.chatAberto);
+        });
+    }
+
+    function entrarSala(salaId) {
+        return tentarEntrada(async () => {
+            const resposta = await chamar('entrarSala', { salaId });
+            onEntrouNaSala(salaId, resposta.jogadores, resposta.segundosParaIniciar, resposta.chatAberto);
+        });
+    }
+
+    // Reconectar na partida antiga que barrou a entrada (ver colisaoPartida)
+    // — mesma transição de tela do banner de reconexão de sempre.
+    async function reconectarNaColisao() {
+        setErro(null);
+        try {
+            const resposta = await chamar('reconectar', { salaId: colisaoPartida.salaAtivaId });
+            onReconectou(colisaoPartida.salaAtivaId, resposta);
         } catch (erroDaChamada) {
             setErro(erroDaChamada.message);
+            setColisaoPartida(null);
         }
     }
 
-    async function entrarSala(salaId) {
+    // Desistir de vez da partida antiga (perde na hora, libera a vaga) e
+    // então repetir a ação que tinha sido barrada.
+    async function desistirEEntrar() {
+        const { salaAtivaId, retomar } = colisaoPartida;
+        setColisaoPartida(null);
         setErro(null);
         try {
-            const resposta = await chamar('entrarSala', { salaId });
-            onEntrouNaSala(salaId, resposta.jogadores, resposta.segundosParaIniciar, resposta.chatAberto);
+            await chamar('desistir', { salaId: salaAtivaId });
         } catch (erroDaChamada) {
             setErro(erroDaChamada.message);
+            return;
         }
+        // tentarEntrada re-arma a colisão se (corrida improvável) ainda barrar.
+        tentarEntrada(retomar);
     }
 
     // A sala nunca aparece em "Salas abertas" (listarSalas só devolve salas
@@ -99,6 +140,27 @@ export default function Lobby({ meuNome, salaParaReconectar, onEntrouNaSala, onR
                     <button onClick={reconectar} disabled={reconectando} type="button">
                         {reconectando ? 'Reconectando...' : 'Reconectar'}
                     </button>
+                </section>
+            )}
+
+            {colisaoPartida && (
+                <section>
+                    <h2>⚠️ Você já está numa partida</h2>
+                    <p>
+                        Tem uma partida em andamento
+                        {colisaoPartida.salaAtivaId ? ` (sala ${colisaoPartida.salaAtivaId})` : ''}.
+                        Reconecte nela, ou desista de vez (você perde a partida na
+                        hora) pra entrar em outra.
+                    </p>
+                    <div className="linha">
+                        <button type="button" onClick={reconectarNaColisao}>Reconectar</button>
+                        <button type="button" className="secundario" onClick={desistirEEntrar}>
+                            Desistir e entrar
+                        </button>
+                        <button type="button" className="secundario" onClick={() => setColisaoPartida(null)}>
+                            Cancelar
+                        </button>
+                    </div>
                 </section>
             )}
 

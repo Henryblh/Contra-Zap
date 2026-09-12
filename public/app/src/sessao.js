@@ -10,7 +10,7 @@
 // MESMA aba, mas nunca vaza pra outras abas nem sobrevive a fechar a aba.
 // Preserva a propriedade que o projeto já tinha de propósito (cada aba pode
 // logar como um jogador diferente, útil pra testar vários jogadores ao
-// mesmo tempo — ver README.md) — só que agora um F5 acidental não te
+// mesmo tempo — ver DEV.md) — só que agora um F5 acidental não te
 // desloga sozinho.
 const CHAVE_SESSAO = 'contrazap:sessao';
 
