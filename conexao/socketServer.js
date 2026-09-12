@@ -21,44 +21,33 @@ class ErroProtocolo extends Error {
     }
 }
 
-// Teto de tentativas de verificarNome por IP (ver conexao/rateLimiter.js) —
-// esse evento roda pré-autenticação (não tem player.id pra chavear) e sem
-// limite nenhum é oráculo de enumeração de contas (varre nomes e descobre
-// quais existem). Generoso pra uso real: Login.jsx só chama isso uma vez por
-// clique em "Continuar", nunca por tecla digitada — um humano de verdade não
-// chega nem perto disso numa sessão inteira. Injetável (segundo parâmetro de
-// registrarSocketServer) pelo mesmo motivo dos tempos de SalaManager: testes
-// que martelam isso não devem esbarrar no teto pensado pra gente de verdade.
+// Teto de tentativas de verificarNome por IP — esse evento roda
+// pré-autenticação (não tem player.id pra chavear) e sem limite é oráculo de
+// enumeração de contas. Generoso pra uso real: Login.jsx só chama isso uma
+// vez por clique em "Continuar", nunca por tecla digitada. Injetável
+// (segundo parâmetro de registrarSocketServer) pra testes conseguirem
+// afrouxar sem mexer no default.
 const VERIFICAR_NOME_JANELA_MS = 5 * 60_000;
 const VERIFICAR_NOME_MAX = 20;
 
-// Teto de tentativas de LOGIN FALHADAS por IP — o brute-force de senha em
-// `entrar` (item 1 do backlog): sem isto, o único freio era o custo do
-// bcrypt (~70ms), o que ainda dá ~14 tentativas/s por conexão. Conta só as
-// falhas (usuário não encontrado OU senha errada — as duas contam igual, ver
-// o guard no handler: se só uma contasse, o padrão "é bloqueado ou não" viraria
-// um outro jeito de descobrir se o nome existe, o mesmo problema do item 3);
-// login com sucesso não gasta a cota de ninguém. Bem mais apertado que o de
-// verificarNome de propósito — errar senha é bem mais raro que só checar um
-// nome.
+// Teto de tentativas de LOGIN FALHADAS por IP — sem isto, o único freio
+// contra brute-force de senha era o custo do bcrypt (~70ms), o que ainda dá
+// ~14 tentativas/s por conexão. Conta só as falhas (usuário não encontrado
+// OU senha errada contam igual — distinguir os dois pelo padrão de bloqueio
+// seria o mesmo timing oracle de outro jeito); login com sucesso não gasta a
+// cota de ninguém. Mais apertado que o de verificarNome de propósito.
 const ENTRAR_JANELA_MS = 20 * 60_000;
 const ENTRAR_MAX = 5;
 
-// Teto de tentativas de CADASTRO por IP (item 7 do backlog: nenhum evento
-// tinha rate-limit — `verificarNome`/`entrar` já foram, este era o buraco
-// que sobrou). `cadastrar` não depende de `verificarNome` de jeito nenhum
-// (são eventos independentes — nada obriga passar por um antes do outro, e
-// pra criar conta nova nem faz sentido checar nome livre antes: um nome
-// aleatório quase nunca colide), então sem isto dava pra martelar `cadastrar`
-// com nomes inventados sem limite nenhum. E cada tentativa custa um hash de
-// bcrypt de verdade — mesmo quando falha por nome já existente, o hash já
-// rodou ANTES do INSERT esbarrar na constraint UNIQUE (ver criarUsuario em
-// db.js) — competindo pelo mesmo threadpool do libuv que `entrar` de gente
-// de verdade usa (ver item 4/5: o threadpool é só 4 threads por padrão,
-// compartilhado por TODO bcrypt do processo). Por isso conta TODA tentativa,
-// sucesso incluso — diferente de `entrar`, aqui não existe "de graça": uma
-// mesma IP cadastrando dezenas de contas num intervalo curto já é fora do
-// uso normal (uma pessoa cria conta uma vez).
+// Teto de tentativas de CADASTRO por IP. `cadastrar` é independente de
+// `verificarNome` (nada obriga passar por um antes do outro, e pra criar
+// conta nova nem faz sentido checar nome livre antes — um nome aleatório
+// quase nunca colide), então sem isto dava pra martelar `cadastrar` sem
+// limite. Cada tentativa custa um hash de bcrypt de verdade — mesmo quando
+// falha por nome já existente, o hash já rodou antes do INSERT esbarrar na
+// UNIQUE (ver criarUsuario em db.js) — competindo pelo mesmo threadpool do
+// libuv que `entrar` de gente de verdade usa. Por isso conta TODA tentativa,
+// sucesso incluso — aqui, diferente de `entrar`, não existe "de graça".
 const CADASTRAR_JANELA_MS = 10 * 60_000;
 const CADASTRAR_MAX = 10;
 
@@ -85,21 +74,14 @@ export function registrarSocketServer(io, salaManager = new SalaManager(), {
         maxPorJanela: cadastrarMax,
     });
     // ip -> Promise da última tentativa de `entrar` em andamento pra essa
-    // chave. Existe só pra fechar uma corrida que apareceu ao medir de
-    // verdade o ganho do item 4 (bcrypt assíncrono): como login() não
-    // termina mais no mesmo tick, duas tentativas de `entrar` da MESMA IP
-    // chegando quase juntas passavam as duas pelo `limiteEntrar.permitido`
-    // antes de qualquer uma resolver — furando o teto de 5 falhas/20min (e
-    // pior: um ataque de força bruta com várias conexões da mesma IP em
-    // paralelo exploraria isso de propósito), OU, no caso oposto (várias
-    // pessoas na MESMA rede logando ao mesmo tempo, ex.: mesmo wifi), várias
-    // reservas simultâneas estourando o teto sem nenhuma ter dado errado
-    // ainda — bloqueando gente de verdade por coincidência de horário.
-    // `serializarPorIp` (abaixo) enfileira as tentativas da MESMA IP uma
-    // atrás da outra (cada uma só começa quando a anterior termina) sem
-    // travar NADA mais: outra IP, ou qualquer outro evento desta mesma IP
-    // (jogarCarta, apostar...), roda em paralelo normalmente — só as
-    // tentativas de `entrar` entre si, da mesma IP, esperam a vez.
+    // chave. Como login() é assíncrono, `serializarPorIp` (abaixo) enfileira
+    // as tentativas da MESMA IP uma atrás da outra (cada uma só começa
+    // quando a anterior termina) — sem isso, duas tentativas concorrentes da
+    // mesma IP passariam as duas por `limiteEntrar.permitido` antes de
+    // qualquer uma resolver, furando o teto de 5 falhas/20min. Não trava
+    // NADA mais: outra IP, ou qualquer outro evento desta mesma IP, roda em
+    // paralelo normalmente — só as tentativas de `entrar` entre si esperam a
+    // vez.
     const filaEntrarPorIp = new Map();
     function serializarPorIp(ip, tarefa) {
         const vez = (filaEntrarPorIp.get(ip) ?? Promise.resolve()).catch(() => {}).then(tarefa);
@@ -144,34 +126,28 @@ export function registrarSocketServer(io, salaManager = new SalaManager(), {
             // Sala pessoal do jogador — endereçável por id de conta (estável),
             // não por socket.id (muda a cada reconexão). É pra cá que vai
             // qualquer informação privada (ex.: SUA_MAO). Só dá `join` —
-            // nunca `leave` numa room pessoal anterior — por isso é
+            // nunca `leave` numa room pessoal anterior —, por isso é
             // indispensável chamar `exigirMesmaIdentidadeOuNenhuma` antes
-            // (ver comentário lá): sem isso, reautenticar como outra conta
-            // deixaria o socket recebendo a mão privada das DUAS contas ao
-            // mesmo tempo (medido e confirmado — ver DEV.md, item 8).
+            // (ver comentário lá).
             socket.join(`jogador:${player.id}`);
         };
 
-        // Guard do item 8 do backlog de segurança: barra um socket já
-        // autenticado de virar OUTRA identidade sem desconectar. Só existe
-        // porque autenticarSocket nunca dá `leave` na room pessoal anterior
-        // (ver comentário acima) — sem este guard, um cliente customizado
-        // (a UI normal nunca faz isso) conseguiria: autenticar como conta A,
+        // Barra um socket já autenticado de virar OUTRA identidade sem
+        // desconectar. Necessário porque autenticarSocket nunca dá `leave`
+        // na room pessoal anterior: sem este guard, um cliente customizado
+        // (a UI normal nunca faz isso) conseguiria autenticar como conta A,
         // depois como conta B no MESMO socket, e ficar recebendo `suaMao`
-        // das duas contas pro resto da conexão — ou pior, entrar com as duas
-        // na MESMA sala (`entrarSala` só checa "esse player.id já está
-        // aqui?") e jogar dois assentos da mesma mesa vendo as duas mãos.
+        // das duas contas pro resto da conexão — ou entrar com as duas na
+        // MESMA sala (`entrarSala` só checa "esse player.id já está aqui?")
+        // e jogar dois assentos da mesma mesa vendo as duas mãos.
         //
         // Permite reautenticar como a MESMA conta (mesmo player.id) — não é
-        // uma troca de identidade, autenticarSocket é idempotente pra esse
-        // caso (reescreve os mesmos mapas, `join` numa room que já pertence
-        // é no-op). Essencial na prática, não só teórico: o efeito de
-        // restaurar sessão salva do front (App.jsx) roda dentro de um
-        // React.StrictMode (ver main.jsx), que em desenvolvimento invoca
-        // esse efeito duas vezes de propósito — disparando dois
-        // `retomarSessao` REAIS pro mesmo token, no mesmo socket, antes do
-        // primeiro ack voltar. Se isso fosse barrado, restaurar sessão
-        // quebraria toda vez em `npm run dev`.
+        // troca de identidade, autenticarSocket é idempotente pra esse caso.
+        // Isso é necessário na prática: o efeito de restaurar sessão salva
+        // do front roda dentro de React.StrictMode (ver main.jsx), que em
+        // desenvolvimento invoca o efeito duas vezes — disparando dois
+        // `retomarSessao` reais pro mesmo token, no mesmo socket, antes do
+        // primeiro ack voltar.
         const exigirMesmaIdentidadeOuNenhuma = (player) => {
             const atual = jogadorPorSocket.get(socket.id);
             if (atual && atual.id !== player.id) {
@@ -194,28 +170,24 @@ export function registrarSocketServer(io, salaManager = new SalaManager(), {
                     throw new ErroProtocolo(CodigosErro.MUITAS_TENTATIVAS, 'Muitas tentativas — espere um pouco antes de tentar de novo.');
                 }
                 // NOME_MAX: nenhuma conta de verdade pode ter nome tão
-                // grande (ver cadastro.js) — barra antes de mandar pro banco
-                // (item 6 do backlog). Mesmo formato de resposta de sempre
-                // (nunca erro pra nome inválido aqui, só `existe: false`).
+                // grande (ver cadastro.js) — barra antes de mandar pro banco.
+                // Mesmo formato de resposta de sempre (nunca erro pra nome
+                // inválido aqui, só `existe: false`).
                 const existe = typeof nome === 'string' && nome.length <= NOME_MAX && usuarioExiste(nome.trim());
                 return { existe };
             });
         });
 
-        // Rate-limit de LOGIN FALHADO por IP (ver comentário de
-        // ENTRAR_JANELA_MS acima). Desde que login() ficou assíncrono (item
-        // 4 — bcrypt não trava mais a thread principal), a reserva da
-        // unidade precisa acontecer ANTES do `await login()`, num único
-        // passo síncrono (`limiteEntrar.permitido`) — se checasse só
-        // "restantes > 0" antes e consumisse só depois da falha (do outro
-        // lado do await), duas tentativas da MESMA chave chegando quase
-        // juntas passariam as duas pelo check antes de qualquer uma
-        // consumir, furando o teto de 5. Reservando já de cara, o login com
-        // SUCESSO devolve a unidade (`limiteEntrar.devolver`) — só falha de
-        // verdade deveria gastar a cota. Se a unidade que ficou consumida
-        // (por ter falhado) era a última da janela, o erro ganha
-        // `dados.ultimaTentativa` — responder() espalha isso na resposta, o
-        // cliente usa pra avisar "essa foi sua última tentativa" antes do
+        // Rate-limit de LOGIN FALHADO por IP (ver ENTRAR_JANELA_MS acima). A
+        // reserva da unidade acontece num único passo síncrono
+        // (`limiteEntrar.permitido`), ANTES do `await login()` — checar só
+        // "restantes > 0" antes e consumir depois da falha deixaria uma
+        // janela onde tentativas concorrentes da mesma chave passariam todas
+        // pelo check antes de qualquer uma consumir, furando o teto.
+        // Reservando já de cara, o login com SUCESSO devolve a unidade
+        // (`limiteEntrar.devolver`) — só falha de verdade gasta a cota. A
+        // falha que consome a última unidade da janela ganha
+        // `dados.ultimaTentativa`, que o cliente usa pra avisar antes do
         // bloqueio de verdade.
         socket.on(EventosCliente.ENTRAR, ({ nome, senha } = {}, ack) => {
             const ip = socket.handshake.address;
@@ -226,7 +198,7 @@ export function registrarSocketServer(io, salaManager = new SalaManager(), {
                 try {
                     const { token, player } = await login(nome, senha);
                     limiteEntrar.devolver(ip); // credenciais corretas — não é falha, não gasta a cota de ninguém
-                    exigirMesmaIdentidadeOuNenhuma(player); // item 8: não pode virar outra conta no mesmo socket
+                    exigirMesmaIdentidadeOuNenhuma(player);
                     autenticarSocket(player);
                     return { nome: player.nome, token };
                 } catch (erro) {
@@ -238,21 +210,18 @@ export function registrarSocketServer(io, salaManager = new SalaManager(), {
             }));
         });
 
-        // Rate-limit de CADASTRO por IP (ver comentário de CADASTRAR_JANELA_MS
-        // acima) — não depende de nenhum `await` anterior (a checagem é
-        // síncrona, antes de qualquer coisa), então não tem a corrida que
-        // `entrar` teve: mesmo várias tentativas da mesma IP chegando juntas,
-        // cada `permitido` roda e consome sua unidade num só passo síncrono
-        // antes da próxima começar a ser processada.
+        // Rate-limit de CADASTRO por IP (ver CADASTRAR_JANELA_MS acima) — a
+        // checagem é síncrona, antes de qualquer `await`, então não tem a
+        // corrida que `entrar` tem.
         socket.on(EventosCliente.CADASTRAR, ({ nome, senha } = {}, ack) => {
             responder(ack, async () => {
                 if (!limiteCadastrar.permitido(socket.handshake.address)) {
                     throw new ErroProtocolo(CodigosErro.MUITAS_TENTATIVAS, 'Muitas tentativas de cadastro — espere um pouco antes de tentar de novo.');
                 }
                 const { token, player } = await cadastrar(nome, senha);
-                // item 8: cadastro sempre cria uma identidade NOVA — nunca
-                // pode coincidir com quem este socket já era, então isto
-                // aqui equivale a "sempre bloqueia se já autenticado".
+                // Cadastro sempre cria identidade NOVA — nunca pode
+                // coincidir com quem este socket já era, então isto sempre
+                // bloqueia se o socket já estava autenticado.
                 exigirMesmaIdentidadeOuNenhuma(player);
                 autenticarSocket(player);
                 return { nome: player.nome, token };
@@ -262,8 +231,8 @@ export function registrarSocketServer(io, salaManager = new SalaManager(), {
         socket.on(EventosCliente.ENTRAR_COMO_CONVIDADO, ({ nome } = {}, ack) => {
             responder(ack, () => {
                 const { token, player } = entrarComoConvidado(nome);
-                // item 8: convidado sempre nasce com id efêmero novo — mesmo
-                // motivo de cadastrar acima, sempre bloqueia se já autenticado.
+                // Convidado sempre nasce com id efêmero novo — mesmo motivo
+                // de cadastrar acima, sempre bloqueia se já autenticado.
                 exigirMesmaIdentidadeOuNenhuma(player);
                 autenticarSocket(player);
                 return { nome: player.nome, token };
@@ -279,7 +248,7 @@ export function registrarSocketServer(io, salaManager = new SalaManager(), {
                 // ao mesmo id de jogador de sempre — é o que permite
                 // continuar de onde parou sem pedir nome/senha de novo.
                 const { token: novoToken, player } = retomarSessao(token);
-                exigirMesmaIdentidadeOuNenhuma(player); // item 8 — mesma conta é permitida (ver comentário na definição)
+                exigirMesmaIdentidadeOuNenhuma(player); // mesma conta é permitida, ver comentário na definição
                 autenticarSocket(player);
                 return { nome: player.nome, token: novoToken };
             });
@@ -723,12 +692,10 @@ function ligarControllerASala(io, salaManager, sala, socketPorJogador, salaPorSo
 // resposta de erro normal; qualquer outra exceção é logada no servidor e
 // devolvida como ERRO_INTERNO — nunca deixa a exceção derrubar o socket.
 //
-// ASSÍNCRONA (desde o item 4 do backlog: login()/cadastrar() agora usam
-// bcrypt assíncrono) — `await acao()` funciona igual pra uma `acao` síncrona
-// (a maioria dos handlers) e pra uma assíncrona (ENTRAR/CADASTRAR): `await`
-// num valor que não é Promise só resolve com ele na hora, sem esperar nada.
-// Um `throw` síncrono dentro de `acao` continua caindo no mesmo catch de
-// sempre, Promise ou não.
+// `async` pra `acao` poder ser síncrona (a maioria dos handlers) ou
+// assíncrona (ENTRAR/CADASTRAR, que usam bcrypt) sem distinção: `await` num
+// valor que não é Promise só resolve com ele na hora. Um `throw` síncrono
+// dentro de `acao` cai no mesmo catch de sempre, Promise ou não.
 async function responder(ack, acao) {
     if (typeof ack !== 'function') return; // cliente não pediu resposta, nada a fazer
     try {

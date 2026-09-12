@@ -125,37 +125,34 @@ polimento.
   Falta treinar com nº de assentos variável ou uma rede dedicada a 5–6.
 - Subir o servidor num ambiente de verdade, com sockets web funcionando fora
   da rede local (hoje só foi testado em `localhost`).
+- **Banco de testes em produção**
+ 
 
 ### PIN — só mexer se alguém reclamar
 
 Fica pra depois de propósito: pro escopo e tipo de sistema, o custo de fazer
 não parece compensar o ganho agora.
 
-- `Player.rate` / ranking: existe desde sempre (banco, classe,
+- 🟢 `Player.rate` / ranking: existe desde sempre (banco, classe,
   getter/setter) mas nunca é lido nem atualizado em lugar nenhum. No melhor
   dos casos é a última coisa que fazemos no projeto; no pior, nunca usamos.
   Juntar gente de nível parecido em salas ranqueadas depende disso e cai na
   mesma categoria.
-- Placar/histórico entre partidas (não só o hp da partida atual) e persistir
+- 🟡 Placar/histórico entre partidas (não só o hp da partida atual) e persistir
   qualquer coisa além de conta de usuário (`banco.sqlite` só guarda nome +
   hash de senha hoje — salas, placar, quem jogou o quê vivem só na memória e
   somem num restart).
-- Desempate quando **todos** morrem na mesma rodada: hoje é "hp mais perto de
+- 🟡 Desempate quando **todos** morrem na mesma rodada: hoje é "hp mais perto de
   0, empate → quem chegou primeiro" (`GameController._resolverFimDeJogo`),
   marcado como provisório. O time ainda vai decidir o critério definitivo.
-- Sobras do grupo 1 (segurança) — baixo risco no cenário atual de dois jeitos
-  diferentes: os dois primeiros abaixo são de boas incondicionalmente; os
-  dois últimos são de boas só porque nada no sistema hoje consegue disparar
-  o cenário ruim (não é que o código seja à prova disso — é que a
-  funcionalidade que abriria a brecha ainda não existe):
-  - 🟢 `jwt.secret` gerado sem flag `wx` (`jwt.js`) — só dá problema se duas
+- 🟢 `jwt.secret` gerado sem flag `wx` (`jwt.js`) — só dá problema se duas
     instâncias subirem pela primeira vez ao mesmo tempo, sem o arquivo ainda
     existir.
-  - 🟡 Sem HTTPS/wss — item de produção puro, sem efeito nenhum em `localhost`.
-  - 🟡 `retomarSessao` não confere se a conta ainda existe (`retomarSessao.js`)
+- 🟡 Sem HTTPS/wss — item de produção puro, sem efeito nenhum em `localhost`.
+- 🟡 `retomarSessao` não confere se a conta ainda existe (`retomarSessao.js`)
     — inofensivo porque não existe NENHUMA forma de apagar/renomear/banir
     conta no sistema ainda; some da lista de "de boas" no dia que isso mudar.
-  - 🟡 Contador de `idEfemero.js` reinicia em -1 a cada restart, mas token de
+- 🟡 Contador de `idEfemero.js` reinicia em -1 a cada restart, mas token de
     convidado vale 6h → risco de colisão de id — só bate numa sessão longa
     com restart no meio e convidado com token ainda válido rondando; uma
     demo curta sem restart não passa perto disso.

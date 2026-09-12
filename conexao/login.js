@@ -17,55 +17,29 @@ export class ErroLogin extends Error {
     }
 }
 
-// Autentica nome/senha contra o banco e devolve { token, player }.
-// Falha: lança ErroLogin (ou devolve uma Promise rejeitada com ele, já que a
-// função é assíncrona — ver comentário abaixo).
+// Autentica nome/senha contra o banco e devolve { token, player } (Promise —
+// verificarSenha é assíncrona, despacha o bcrypt pro threadpool do libuv em
+// vez de travar a thread principal). Falha: rejeita com ErroLogin.
 //
 // O id do player vem da linha do usuário no banco, então é o mesmo em todo
 // login daquela conta (diferente do token, que é novo a cada vez — ver
 // jwtid em conexao/jwt.js).
-//
-// ASSÍNCRONA desde o item 4 do backlog de segurança: `verificarSenha`
-// (conexao/db.js) agora usa a API assíncrona do bcrypt nativo, que despacha
-// o hash pro threadpool do libuv em vez de travar a thread principal por
-// ~60-70ms a cada tentativa — sem isso, um login (de qualquer um, malicioso
-// ou não) pausava toda partida em andamento no servidor por esse tempo.
-// login() só precisou de um `await` a mais pra propagar isso; quem chama
-// (socketServer.js) já lida com Promise desde então.
 export async function login(nome, senha) {
-    // Nenhuma conta de verdade pode ter nome/senha maior que esses tetos
-    // (ver cadastro.js) — rejeita rápido, sem tocar banco nem bcrypt, antes
-    // de gastar qualquer recurso com uma string gigante que não podia ser um
-    // usuário real de qualquer jeito (item 6 do backlog). Só MÁXIMO, nunca
-    // mínimo: `login()` não pode reprovar senha curta — contas antigas
-    // (inclusive as de banco.json, "123") continuam existindo com senhas
-    // mais curtas que o mínimo de cadastro atual, e mudar a régua não pode
-    // travar quem já tem conta. Mesmo código de erro de "não existe" — não é
-    // informação nova que valha vazar (ver item 3, timing oracle): só filtra
-    // lixo antes de processá-lo, não muda o que um cliente normal já via.
+    // Nome/senha fora do teto de conexao/limites.js não podem ser conta
+    // real — rejeita rápido, sem tocar banco nem bcrypt. Só MÁXIMO, nunca
+    // mínimo: contas antigas (ex.: banco.json, "123") continuam válidas
+    // mesmo com senha mais curta que o mínimo de cadastro atual.
     if (typeof nome !== 'string' || nome.length > NOME_MAX || (typeof senha === 'string' && senha.length > SENHA_MAX)) {
         throw new ErroLogin(CodigosErro.USUARIO_NAO_ENCONTRADO, `Usuário "${typeof nome === 'string' ? nome : ''}" não encontrado.`);
     }
 
     const usuario = buscarUsuarioPorNome(nome);
 
-    // Sempre paga o mesmo custo de bcrypt, exista o usuário ou não — só
-    // TROCA o hash comparado (o de verdade, ou o HASH_DUMMY de db.js), nunca
-    // pula a comparação. É o que fecha o timing oracle: antes disso,
-    // "usuário não encontrado" respondia na hora (só o SELECT) e "senha
-    // incorreta" só depois do bcrypt (~70ms) — dava pra descobrir quais
-    // nomes têm conta só medindo o tempo de resposta do `entrar`, sem
-    // precisar nem de `verificarNome` (ver DEV.md, item 3). A ORDEM dos
-    // throws abaixo ainda depende de `usuario` (o código de erro tem que
-    // continuar certo) — só o TEMPO até chegar aqui que não depende mais.
-    //
-    // bcrypt lança (aqui, rejeita a Promise) se `senha` não for string
-    // (payload malformado, ex.: {nome} sem senha) — antes da correção do
-    // item 3 isso só acontecia quando o usuário existia; como os dois ramos
-    // agora chamam bcrypt sempre, os dois precisam do mesmo `?? ''` pra
-    // continuar devolvendo um ErroLogin normal em vez de um throw cru (que o
-    // responder() de socketServer.js até captura, mas vira ERRO_INTERNO em
-    // vez do código certo).
+    // Sempre compara contra ALGUM hash (o de verdade, ou HASH_DUMMY de
+    // db.js quando o usuário não existe) — mesmo custo de bcrypt nos dois
+    // casos, pra "usuário não encontrado" e "senha incorreta" não se
+    // distinguirem pelo tempo de resposta (timing oracle). `?? ''` porque
+    // bcrypt rejeita `senha` que não seja string.
     const senhaConfere = await verificarSenha(typeof senha === 'string' ? senha : '', usuario ? usuario.senha_hash : HASH_DUMMY);
 
     if (!usuario) {

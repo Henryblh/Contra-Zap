@@ -17,18 +17,15 @@ export class ErroCadastro extends Error {
     }
 }
 
-// Cria a conta e devolve { token, player }, igual login(). Lança
-// ErroCadastro se nome/senha forem curtos demais ou o nome já existir.
+// Cria a conta e devolve { token, player } (Promise — criarUsuario usa a API
+// assíncrona do bcrypt pro hash), igual login(). Lança ErroCadastro se
+// nome/senha forem inválidos ou o nome já existir.
 //
 // Não faz um SELECT antes pra checar duplicidade — deixa a constraint
 // UNIQUE do banco ser a única fonte de verdade (ver db.js) e traduz a
 // violação pra NOME_JA_CADASTRADO aqui. Checar antes e inserir depois
 // deixaria uma janela onde dois cadastros com o mesmo nome ao mesmo tempo
 // passariam os dois pela checagem antes de colidir no insert.
-//
-// ASSÍNCRONA desde o item 4 do backlog de segurança: `criarUsuario`
-// (conexao/db.js) usa a API assíncrona do bcrypt nativo pro hash da senha —
-// ver o comentário de login.js pro porquê.
 export async function cadastrar(nome, senha) {
     validarDados(nome, senha);
     const nomeLimpo = nome.trim();

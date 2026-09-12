@@ -206,12 +206,10 @@ export class GameController extends EventEmitter {
         // A partir daqui a partida roda em segundo plano, pausando pra
         // esperar cada jogada real (ver _aguardarJogada/jogarCarta) — pode
         // levar segundos, minutos, o tempo que for. iniciarPartida() não
-        // espera nada disso, só dispara e devolve na hora. O .catch aqui é
-        // a mesma filosofia do responder() em socketServer.js: um erro
-        // inesperado no meio da partida não pode virar um unhandled
-        // rejection e derrubar o processo — mas, diferente de antes, não
-        // engole em silêncio: aborta a partida e avisa a sala (ver
-        // _abortarPartida).
+        // espera nada disso, só dispara e devolve na hora. O .catch aqui
+        // garante que um erro inesperado no meio da partida vira
+        // _abortarPartida (avisa a sala) em vez de um unhandled rejection
+        // que derruba o processo.
         this._rodarPartida().catch(erro => this._abortarPartida(erro));
         return this;
     }
@@ -751,11 +749,8 @@ export class GameController extends EventEmitter {
     }
 
     // Loop da partida: uma rodada por volta, até alguém vencer (ou a sala ser
-    // removida, ver destruir/_encerrado). Antes isto era recursão mútua
-    // (_jogarRodadaAtual -> _avancarOuFinalizar -> _jogarRodadaAtual): cada
-    // rodada empilhava um frame que só desenrolava no fim da partida, então
-    // memória e profundidade de pilha cresciam com o nº de rodadas. Agora é um
-    // while raso — um frame pra partida inteira.
+    // removida, ver destruir/_encerrado). While raso — um frame só pra
+    // partida inteira, não um por rodada.
     async _rodarPartida() {
         while (!this._encerrado) {
             await this._jogarUmaRodada();

@@ -3,19 +3,14 @@
 // projeto). Senha nunca é guardada em texto puro — só o hash (bcrypt).
 // Única peça de conexao/ que sabe SQL: login.js só chama as funções daqui.
 //
-// `bcrypt` (binding nativo em C++), não `bcryptjs` (JS puro) — troca feita
-// pro item 4/5 do backlog de segurança. As duas funções que rodam por
-// requisição de verdade (`criarUsuario` no cadastro, `verificarSenha` no
-// login) usam a API ASSÍNCRONA da lib (`bcrypt.hash`/`bcrypt.compare`, sem
-// `Sync`): por baixo dos panos isso despacha o hash pro threadpool do libuv
-// (um pool de threads do sistema operacional que o próprio Node já mantém
-// pra I/O/crypto pesado) — o custo do bcrypt (~60-70ms) deixa de travar a
-// thread principal, então login/cadastro concorrentes não pausam mais toda
-// partida em andamento no servidor enquanto processam. As duas funções que
-// só rodam UMA VEZ no boot (`semearSeVazio`, o `HASH_DUMMY` do timing oracle)
-// continuam com a versão `Sync`: nesse caso não tem ninguém esperando, o
-// custo não se repete por requisição, e `semearSeVazio` roda dentro de uma
-// `db.transaction()` do better-sqlite3, que não suporta callback assíncrono.
+// `bcrypt` (binding nativo em C++), não `bcryptjs` (JS puro). As duas
+// funções que rodam por requisição de verdade (`criarUsuario`,
+// `verificarSenha`) usam a API ASSÍNCRONA da lib (`bcrypt.hash`/`compare`,
+// sem `Sync`): despacha o hash pro threadpool do libuv em vez de travar a
+// thread principal por ~60-70ms a cada chamada. As que só rodam UMA VEZ no
+// boot (`semearSeVazio`, `HASH_DUMMY`) usam `Sync` — não repetem por
+// requisição, e `semearSeVazio` roda dentro de uma `db.transaction()` do
+// better-sqlite3, que não suporta callback assíncrono.
 import Database from 'better-sqlite3';
 import bcrypt from 'bcrypt';
 import { existsSync, readFileSync } from 'node:fs';
@@ -43,17 +38,10 @@ semearSeVazio();
 
 // Popula a tabela a partir de banco.json na primeira vez que o banco é
 // criado (bootstrap de dev/teste) — nunca sobrescreve quem já existe.
-// banco.json continua no repo só como fixture inicial.
-//
-// Restrito a fora de produção (item 9 do backlog de segurança):
-// `banco.json` versiona senha em TEXTO PURO (é fixture, não segredo) — sem
-// esta trava, um banco de produção vazio (primeiro deploy, antes de
-// qualquer conta real existir) nasceria seedado com essas contas conhecidas
-// publicamente no próprio repositório — um backdoor de verdade. `Dockerfile`
-// e `docker-compose.yml` já setam `NODE_ENV=production`; em dev/teste (ausente,
-// ou qualquer outro valor) continua semeando normal — é o que a suíte de
-// testes e o `npm start`/`npm run dev` locais dependem pra já ter
-// "henrique/123" etc. sem precisar cadastrar na mão toda vez.
+// banco.json continua no repo só como fixture inicial, com senha em TEXTO
+// PURO — por isso não roda em produção (`NODE_ENV=production`, já setado
+// por `Dockerfile`/`docker-compose.yml`): um banco de prod vazio não pode
+// nascer com essas contas conhecidas publicamente no repositório.
 //
 // OR IGNORE (em vez de checar "tabela vazia?" antes) é o que faz isso ser
 // seguro com múltiplos processos rodando ao mesmo tempo (ex.: cada arquivo
@@ -103,11 +91,7 @@ export function verificarSenha(senha, senhaHash) {
 
 // Hash bcrypt de uma senha fixa que ninguém usa de verdade pra autenticar —
 // existe só pra login() (conexao/login.js) ter algo pra comparar quando o
-// usuário NÃO existe, gastando o mesmo custo de bcrypt que compararia contra
-// um hash de verdade. Sem isto, "usuário não encontrado" respondia na hora
-// (só o SELECT) e "senha incorreta" só depois do bcrypt — um timing oracle
-// que entrega quais nomes têm conta sem precisar nem de `verificarNome` (ver
-// DEV.md, item 3). `Sync` aqui é o caso certo pra `Sync`: roda UMA VEZ, no
-// import do módulo (antes de qualquer requisição de verdade existir pra
-// travar) — não o comparador em si, que continua assíncrono acima.
+// usuário NÃO existe, pagando o mesmo custo de bcrypt que um hash de
+// verdade pagaria (evita um timing oracle que revelaria quais nomes têm
+// conta). `Sync` aqui é o caso certo: roda uma vez só, no import do módulo.
 export const HASH_DUMMY = bcrypt.hashSync('nenhuma-conta-usa-esta-senha', SALT_ROUNDS);

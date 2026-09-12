@@ -16,15 +16,14 @@ export const socket = io();
 if (typeof window !== 'undefined') window.__socket = socket; // debug via console
 
 // Estado de conexão do socket, pra dar feedback visual quando a rede cai
-// (ver App.jsx) — antes disso, a única pista de uma queda era uma ação
-// qualquer falhando sem explicação nenhuma. `pingInterval`/`pingTimeout`
-// no servidor (Server.js) fazem o `disconnect` chegar rápido (~25s no pior
-// caso). Reconexão automática é padrão do socket.io-client (dispara
-// `connect` nesta mesma instância de novo) — mas isso só reabre o
-// transporte: o servidor trata como um socket totalmente novo, sem sessão
-// nenhuma. Então "o socket reconectou" é só "a rede voltou", não "o jogo
-// continuou sozinho" — é App.jsx quem reage a isso chamando `retomarSessao`
-// de novo (ver sessao.js), pra reautenticar sem pedir nome/senha.
+// (ver App.jsx). `pingInterval`/`pingTimeout` no servidor (Server.js) fazem
+// o `disconnect` chegar rápido (~25s no pior caso). Reconexão automática é
+// padrão do socket.io-client (dispara `connect` nesta mesma instância de
+// novo) — mas isso só reabre o transporte: o servidor trata como um socket
+// totalmente novo, sem sessão nenhuma. Então "o socket reconectou" é só "a
+// rede voltou", não "o jogo continuou sozinho" — é App.jsx quem reage a
+// isso chamando `retomarSessao` de novo (ver sessao.js), pra reautenticar
+// sem pedir nome/senha.
 let conectado = socket.connected;
 const ouvintesDeConexao = new Set();
 

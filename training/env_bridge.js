@@ -32,9 +32,8 @@ import { Player } from '../game/Player.js';
 import { GameController } from '../game/GameController.js';
 
 // A avaliação pode fixar uma seed sem interferir no servidor nem no treino
-// normal. Antes isto sobrescrevia o Math.random global; agora passa a seed
-// direto pro GameController, que a repassa pro embaralhamento (game/rng.js
-// usa o mesmo mulberry32 de antes — a mesma seed reproduz a mesma sequência).
+// normal: passa direto pro GameController, que a repassa pro embaralhamento
+// (game/rng.js, mesmo mulberry32 — a mesma seed reproduz a mesma sequência).
 // undefined = Math.random de sempre.
 const EVAL_SEED = (() => {
     const texto = process.env.EVAL_SEED;
