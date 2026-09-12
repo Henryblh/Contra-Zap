@@ -44,6 +44,24 @@ const VERIFICAR_NOME_MAX = 20;
 const ENTRAR_JANELA_MS = 20 * 60_000;
 const ENTRAR_MAX = 5;
 
+// Teto de tentativas de CADASTRO por IP (item 7 do backlog: nenhum evento
+// tinha rate-limit — `verificarNome`/`entrar` já foram, este era o buraco
+// que sobrou). `cadastrar` não depende de `verificarNome` de jeito nenhum
+// (são eventos independentes — nada obriga passar por um antes do outro, e
+// pra criar conta nova nem faz sentido checar nome livre antes: um nome
+// aleatório quase nunca colide), então sem isto dava pra martelar `cadastrar`
+// com nomes inventados sem limite nenhum. E cada tentativa custa um hash de
+// bcrypt de verdade — mesmo quando falha por nome já existente, o hash já
+// rodou ANTES do INSERT esbarrar na constraint UNIQUE (ver criarUsuario em
+// db.js) — competindo pelo mesmo threadpool do libuv que `entrar` de gente
+// de verdade usa (ver item 4/5: o threadpool é só 4 threads por padrão,
+// compartilhado por TODO bcrypt do processo). Por isso conta TODA tentativa,
+// sucesso incluso — diferente de `entrar`, aqui não existe "de graça": uma
+// mesma IP cadastrando dezenas de contas num intervalo curto já é fora do
+// uso normal (uma pessoa cria conta uma vez).
+const CADASTRAR_JANELA_MS = 10 * 60_000;
+const CADASTRAR_MAX = 10;
+
 // Registra todos os handlers de conexão no `io` passado. `salaManager` pode
 // ser injetado (testes) — por padrão cada chamada ganha o seu, isolado.
 export function registrarSocketServer(io, salaManager = new SalaManager(), {
@@ -51,6 +69,8 @@ export function registrarSocketServer(io, salaManager = new SalaManager(), {
     verificarNomeMax = VERIFICAR_NOME_MAX,
     entrarJanelaMs = ENTRAR_JANELA_MS,
     entrarMax = ENTRAR_MAX,
+    cadastrarJanelaMs = CADASTRAR_JANELA_MS,
+    cadastrarMax = CADASTRAR_MAX,
 } = {}) {
     const limiteVerificarNome = criarLimitadorDeTaxa({
         janelaMs: verificarNomeJanelaMs,
@@ -59,6 +79,10 @@ export function registrarSocketServer(io, salaManager = new SalaManager(), {
     const limiteEntrar = criarLimitadorDeTaxa({
         janelaMs: entrarJanelaMs,
         maxPorJanela: entrarMax,
+    });
+    const limiteCadastrar = criarLimitadorDeTaxa({
+        janelaMs: cadastrarJanelaMs,
+        maxPorJanela: cadastrarMax,
     });
     // ip -> Promise da última tentativa de `entrar` em andamento pra essa
     // chave. Existe só pra fechar uma corrida que apareceu ao medir de
@@ -119,8 +143,43 @@ export function registrarSocketServer(io, salaManager = new SalaManager(), {
             socketPorJogador.set(player.id, socket.id);
             // Sala pessoal do jogador — endereçável por id de conta (estável),
             // não por socket.id (muda a cada reconexão). É pra cá que vai
-            // qualquer informação privada (ex.: SUA_MAO).
+            // qualquer informação privada (ex.: SUA_MAO). Só dá `join` —
+            // nunca `leave` numa room pessoal anterior — por isso é
+            // indispensável chamar `exigirMesmaIdentidadeOuNenhuma` antes
+            // (ver comentário lá): sem isso, reautenticar como outra conta
+            // deixaria o socket recebendo a mão privada das DUAS contas ao
+            // mesmo tempo (medido e confirmado — ver DEV.md, item 8).
             socket.join(`jogador:${player.id}`);
+        };
+
+        // Guard do item 8 do backlog de segurança: barra um socket já
+        // autenticado de virar OUTRA identidade sem desconectar. Só existe
+        // porque autenticarSocket nunca dá `leave` na room pessoal anterior
+        // (ver comentário acima) — sem este guard, um cliente customizado
+        // (a UI normal nunca faz isso) conseguiria: autenticar como conta A,
+        // depois como conta B no MESMO socket, e ficar recebendo `suaMao`
+        // das duas contas pro resto da conexão — ou pior, entrar com as duas
+        // na MESMA sala (`entrarSala` só checa "esse player.id já está
+        // aqui?") e jogar dois assentos da mesma mesa vendo as duas mãos.
+        //
+        // Permite reautenticar como a MESMA conta (mesmo player.id) — não é
+        // uma troca de identidade, autenticarSocket é idempotente pra esse
+        // caso (reescreve os mesmos mapas, `join` numa room que já pertence
+        // é no-op). Essencial na prática, não só teórico: o efeito de
+        // restaurar sessão salva do front (App.jsx) roda dentro de um
+        // React.StrictMode (ver main.jsx), que em desenvolvimento invoca
+        // esse efeito duas vezes de propósito — disparando dois
+        // `retomarSessao` REAIS pro mesmo token, no mesmo socket, antes do
+        // primeiro ack voltar. Se isso fosse barrado, restaurar sessão
+        // quebraria toda vez em `npm run dev`.
+        const exigirMesmaIdentidadeOuNenhuma = (player) => {
+            const atual = jogadorPorSocket.get(socket.id);
+            if (atual && atual.id !== player.id) {
+                throw new ErroProtocolo(
+                    CodigosErro.JA_AUTENTICADO,
+                    'Esta conexão já está autenticada como outra conta — desconecte antes de entrar como outra.'
+                );
+            }
         };
 
         // Pré-autenticação: não exige "entrar" antes (é o que decide se o
@@ -166,8 +225,9 @@ export function registrarSocketServer(io, salaManager = new SalaManager(), {
                 }
                 try {
                     const { token, player } = await login(nome, senha);
+                    limiteEntrar.devolver(ip); // credenciais corretas — não é falha, não gasta a cota de ninguém
+                    exigirMesmaIdentidadeOuNenhuma(player); // item 8: não pode virar outra conta no mesmo socket
                     autenticarSocket(player);
-                    limiteEntrar.devolver(ip); // deu certo — não gasta a cota de ninguém
                     return { nome: player.nome, token };
                 } catch (erro) {
                     if (erro instanceof ErroLogin && limiteEntrar.restantes(ip) === 0) {
@@ -178,9 +238,22 @@ export function registrarSocketServer(io, salaManager = new SalaManager(), {
             }));
         });
 
+        // Rate-limit de CADASTRO por IP (ver comentário de CADASTRAR_JANELA_MS
+        // acima) — não depende de nenhum `await` anterior (a checagem é
+        // síncrona, antes de qualquer coisa), então não tem a corrida que
+        // `entrar` teve: mesmo várias tentativas da mesma IP chegando juntas,
+        // cada `permitido` roda e consome sua unidade num só passo síncrono
+        // antes da próxima começar a ser processada.
         socket.on(EventosCliente.CADASTRAR, ({ nome, senha } = {}, ack) => {
             responder(ack, async () => {
+                if (!limiteCadastrar.permitido(socket.handshake.address)) {
+                    throw new ErroProtocolo(CodigosErro.MUITAS_TENTATIVAS, 'Muitas tentativas de cadastro — espere um pouco antes de tentar de novo.');
+                }
                 const { token, player } = await cadastrar(nome, senha);
+                // item 8: cadastro sempre cria uma identidade NOVA — nunca
+                // pode coincidir com quem este socket já era, então isto
+                // aqui equivale a "sempre bloqueia se já autenticado".
+                exigirMesmaIdentidadeOuNenhuma(player);
                 autenticarSocket(player);
                 return { nome: player.nome, token };
             });
@@ -189,6 +262,9 @@ export function registrarSocketServer(io, salaManager = new SalaManager(), {
         socket.on(EventosCliente.ENTRAR_COMO_CONVIDADO, ({ nome } = {}, ack) => {
             responder(ack, () => {
                 const { token, player } = entrarComoConvidado(nome);
+                // item 8: convidado sempre nasce com id efêmero novo — mesmo
+                // motivo de cadastrar acima, sempre bloqueia se já autenticado.
+                exigirMesmaIdentidadeOuNenhuma(player);
                 autenticarSocket(player);
                 return { nome: player.nome, token };
             });
@@ -203,6 +279,7 @@ export function registrarSocketServer(io, salaManager = new SalaManager(), {
                 // ao mesmo id de jogador de sempre — é o que permite
                 // continuar de onde parou sem pedir nome/senha de novo.
                 const { token: novoToken, player } = retomarSessao(token);
+                exigirMesmaIdentidadeOuNenhuma(player); // item 8 — mesma conta é permitida (ver comentário na definição)
                 autenticarSocket(player);
                 return { nome: player.nome, token: novoToken };
             });

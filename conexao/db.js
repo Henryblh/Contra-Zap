@@ -45,12 +45,26 @@ semearSeVazio();
 // criado (bootstrap de dev/teste) — nunca sobrescreve quem já existe.
 // banco.json continua no repo só como fixture inicial.
 //
+// Restrito a fora de produção (item 9 do backlog de segurança):
+// `banco.json` versiona senha em TEXTO PURO (é fixture, não segredo) — sem
+// esta trava, um banco de produção vazio (primeiro deploy, antes de
+// qualquer conta real existir) nasceria seedado com essas contas conhecidas
+// publicamente no próprio repositório — um backdoor de verdade. `Dockerfile`
+// e `docker-compose.yml` já setam `NODE_ENV=production`; em dev/teste (ausente,
+// ou qualquer outro valor) continua semeando normal — é o que a suíte de
+// testes e o `npm start`/`npm run dev` locais dependem pra já ter
+// "henrique/123" etc. sem precisar cadastrar na mão toda vez.
+//
 // OR IGNORE (em vez de checar "tabela vazia?" antes) é o que faz isso ser
 // seguro com múltiplos processos rodando ao mesmo tempo (ex.: cada arquivo
 // de teste sobe seu próprio processo Node e importa este módulo) — sem
 // isso, dois processos podem checar "vazio" ao mesmo tempo e colidir na
 // mesma inserção (UNIQUE constraint).
 function semearSeVazio() {
+    if (process.env.NODE_ENV === 'production') {
+        console.log('[db] NODE_ENV=production — pulando semeadura de banco.json (contas de fixture nunca entram em produção).');
+        return;
+    }
     if (!existsSync(CAMINHO_SEED)) return;
 
     const usuarios = JSON.parse(readFileSync(CAMINHO_SEED, 'utf-8'));

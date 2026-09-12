@@ -118,19 +118,11 @@ lado divergir, o teste do lado que mudou quebra.
 Gaps estruturais de verdade — o motor/protocolo tem um buraco real, não é só
 polimento.
 
-- **Rede de RL treinada com nº de assentos variável (ou uma dedicada a 5–6)**
-  (`bots/BotBrain.js`, `training/`) — o bot **já** usa as redes de RL em
-  qualquer sala de 2 a 6: `ajustarParaModelo()` encaixa a observação no
-  formato de 4 assentos com que elas treinaram (completa com assento
-  fantasma quando há menos gente — o que a rede lê como jogador já
-  eliminado, estado que ela viu muito em partidas de 4 — e corta os assentos
-  mais distantes quando há mais). Isso cobre 2–3 de forma decente, mas **5–6
-  fica fora da distribuição de treino**: a rede nunca viu mais de 4 na mesa,
-  então a jogada é coerente mas fraca. O que falta é treinar com número de
-  assentos variável (mudar `training/env_bridge.js:NUM_SEATS` e a codificação
-  de observação pra tamanho fixo com padding) ou treinar uma rede específica
-  de 5–6 e plugar em `BotBrain`. Enquanto isso não existe, o heurístico burro
-  (última carta, aposta 1) só entra se os modelos nem carregarem.
+- **Rede de RL só treinou com 4 assentos** (`bots/BotBrain.js`, `training/`)
+  — hoje ela joga em qualquer sala de 2 a 6 via `ajustarParaModelo()`
+  (encaixe/corte de assento, ver comentário lá), o que cobre 2–3 bem mas
+  deixa 5–6 fora da distribuição de treino (jogada coerente, mas fraca).
+  Falta treinar com nº de assentos variável ou uma rede dedicada a 5–6.
 - Subir o servidor num ambiente de verdade, com sockets web funcionando fora
   da rede local (hoje só foi testado em `localhost`).
 
@@ -151,29 +143,28 @@ não parece compensar o ganho agora.
 - Desempate quando **todos** morrem na mesma rodada: hoje é "hp mais perto de
   0, empate → quem chegou primeiro" (`GameController._resolverFimDeJogo`),
   marcado como provisório. O time ainda vai decidir o critério definitivo.
+- Sobras do grupo 1 (segurança) — baixo risco no cenário atual de dois jeitos
+  diferentes: os dois primeiros abaixo são de boas incondicionalmente; os
+  dois últimos são de boas só porque nada no sistema hoje consegue disparar
+  o cenário ruim (não é que o código seja à prova disso — é que a
+  funcionalidade que abriria a brecha ainda não existe):
+  - 🟢 `jwt.secret` gerado sem flag `wx` (`jwt.js`) — só dá problema se duas
+    instâncias subirem pela primeira vez ao mesmo tempo, sem o arquivo ainda
+    existir.
+  - 🟡 Sem HTTPS/wss — item de produção puro, sem efeito nenhum em `localhost`.
+  - 🟡 `retomarSessao` não confere se a conta ainda existe (`retomarSessao.js`)
+    — inofensivo porque não existe NENHUMA forma de apagar/renomear/banir
+    conta no sistema ainda; some da lista de "de boas" no dia que isso mudar.
+  - 🟡 Contador de `idEfemero.js` reinicia em -1 a cada restart, mas token de
+    convidado vale 6h → risco de colisão de id — só bate numa sessão longa
+    com restart no meio e convidado com token ainda válido rondando; uma
+    demo curta sem restart não passa perto disso.
 
 ---
 
 ## Backlog técnico — auditoria de backend
 
 Legenda: 🔴 bug/segurança · 🟡 robustez/produção · 🟢 limpeza/doc.
-
-### 1. Segurança & autenticação
-1. ✅ ~~Sem rate-limit/lockout no `entrar` — o custo do bcrypt (~70ms) é o único freio contra brute force de senha.~~ Rate-limit de FALHA por IP (5 falhas/20min por padrão, reusa `conexao/rateLimiter.js` do item 2) — estourou, nem chama `login()` (poupa o bcrypt); a 5ª falha vem com `ultimaTentativa: true` na resposta, e `Login.jsx` mostra o aviso. Só falha conta — sucesso não gasta cota.
-2. ✅ ~~`verificarNome` é oráculo de enumeração de usuários: sem auth, sem limite.~~ Rate-limit por IP (20 tentativas/5min por padrão, `conexao/rateLimiter.js`), aplicado em `socketServer.js` — devolve `MUITAS_TENTATIVAS` acima do teto.
-3. ✅ ~~Timing oracle no `entrar`: nome inexistente responde na hora, senha errada só depois do bcrypt.~~ `login()` sempre chama `verificarSenha` — contra o hash de verdade se o usuário existe, contra `db.HASH_DUMMY` (novo) senão — só a ordem dos throws muda, não o tempo. Medido: diferença caiu de ~60ms pra ~0.1ms.
-4. ✅ ~~`bcrypt.hashSync`/`compareSync` bloqueiam o event loop a cada login/cadastro. Migrar pra async.~~ `criarUsuario`/`verificarSenha` (`db.js`) usam a API assíncrona do bcrypt — o hash sai pro threadpool do libuv em vez de travar a thread principal. `login()`/`cadastrar()` (e o `responder()` de `socketServer.js`) ficaram assíncronos pra propagar isso. `HASH_DUMMY`/`semearSeVazio` continuam `Sync` de propósito (rodam só uma vez, no boot — ver comentário no topo de `db.js`).
-5. ✅ ~~`bcryptjs` (JS puro) é ~3-4x mais lento que o nativo.~~ Trocado por `bcrypt` (binding nativo) — resolvido junto com o item 4, já que a API assíncrona é o que de fato usa o threadpool.
-
-**Corrida pega ao medir o item 4 de verdade** (não só ler o código — ver [[feedback-rl-empirical-rigor]] no espírito): como `login()` não termina mais no mesmo tick, duas tentativas de `entrar` da MESMA IP chegando quase juntas passavam as duas pelo rate-limiter do item 1 antes de qualquer uma resolver — furava o teto de 5 falhas, e no sentido oposto (várias pessoas na mesma rede/wifi logando ao mesmo tempo, todas com senha certa) rejeitava gente de verdade por coincidência de horário. Corrigido enfileirando as tentativas de `entrar` da MESMA IP entre si (`serializarPorIp` em `socketServer.js`) — só elas esperam a vez; qualquer outra IP, ou qualquer outro evento da mesma IP, continua rodando em paralelo sem esperar nada.
-6. ✅ ~~Sem teto de tamanho em `nome`/`senha` — string gigante vira CPU/memória. Capar.~~ Nova fonte única `conexao/limites.js`: nome 3-24 chars, senha 8 (subiu de 3, reforço de verdade) a 72 (bcrypt trunca em 72 bytes de qualquer jeito) — usada por `cadastro.js`, `convidado.js`, `login.js` (só o MÁXIMO — contas antigas com senha curta, ex. `banco.json` "123", continuam logando) e o guard de `verificarNome` em `socketServer.js`. `Login.jsx` importa a mesma fonte (`maxLength` nos campos + aviso de mínimo no cadastro).
-7. 🔴 Nenhum evento de socket tem rate-limit (`criarSala`, `verificarNome`...). `socketServer.js`
-8. 🟡 Socket pode se reautenticar no meio da sessão e trocar de identidade. Falta guard "já autenticado". `socketServer.js`
-9. 🟡 `banco.json` versiona senha em texto puro e `semearSeVazio()` roda em qualquer ambiente → prod nasce com `henrique/123`. Restringir a dev. `db.js`
-10. 🟢 `jwt.secret` gerado sem flag `wx`; apagar o arquivo invalida todas as sessões em silêncio. `jwt.js`
-11. 🟡 `retomarSessao` não confere se a conta ainda existe. `retomarSessao.js`
-12. 🟡 Contador de `idEfemero.js` reinicia em -1 a cada restart, mas token de convidado vale 6h → risco de colisão de id. `idEfemero.js`
-13. 🟡 Sem HTTPS/wss (item de "produção").
 
 ### 5. QA / Validação de comportamento
 19. 🟡 Falta Testes Para confirmar paridade de regra JS × motor Python em treinamento

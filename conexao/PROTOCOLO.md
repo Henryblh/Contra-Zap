@@ -95,7 +95,9 @@ Payload: `{ nome: string, senha: string }`
 Pré-condição: nenhuma.
 Ack sucesso: `{ ok: true, nome, token }`.
 Erros possíveis: `USUARIO_NAO_ENCONTRADO`, `SENHA_INCORRETA`, `MUITAS_TENTATIVAS`
-(rate-limit por IP, ver abaixo).
+(rate-limit por IP, ver abaixo), `JA_AUTENTICADO` (socket já é OUTRA conta —
+ver seção "Reautenticação num socket já autenticado" mais abaixo; logar de
+novo como a MESMA conta é permitido).
 
 Rate-limit de **login falhado** por IP (`conexao/rateLimiter.js`, 5 falhas a
 cada 20 minutos por padrão) — sem isto, o único freio contra brute-force de
@@ -133,7 +135,24 @@ Pré-condição: nenhuma (alternativa a `entrar` pra quem ainda não tem conta).
 Ack sucesso: `{ ok: true, nome, token }` — mesmo formato de `entrar`; a
 conta já nasce autenticada, não precisa de um `entrar` separado depois.
 Erros possíveis: `CADASTRO_INVALIDO` (nome/senha fora dos limites acima),
-`NOME_JA_CADASTRADO`.
+`NOME_JA_CADASTRADO`, `MUITAS_TENTATIVAS` (rate-limit por IP, ver abaixo),
+`JA_AUTENTICADO` (socket já autenticado — ver seção própria mais abaixo;
+cadastro sempre cria identidade nova, então aqui **qualquer** socket já
+autenticado é barrado, não só "conta diferente").
+
+Rate-limit de **cadastro** por IP (`conexao/rateLimiter.js`, 10 a cada 10
+minutos por padrão) — `cadastrar` é independente de `verificarNome` (nada
+obriga chamar um antes do outro, e pra criar conta nova nem faz sentido
+checar nome livre antes: um nome inventado quase nunca colide), então sem
+isto dava pra martelar `cadastrar` com nomes aleatórios sem limite nenhum.
+Diferente do rate-limit de `entrar` (só falha conta), aqui **toda tentativa
+conta**, sucesso incluso — cada uma paga um hash de bcrypt de verdade mesmo
+quando falha por nome já existente (o hash roda ANTES do INSERT esbarrar na
+constraint UNIQUE), competindo pelo mesmo threadpool que `entrar` de gente
+de verdade usa (o threadpool do libuv é só 4 threads por padrão, compartilhado
+por TODO bcrypt do processo — ver itens 4/5 do backlog). Estourou o teto, o
+servidor nem chama `cadastrar()` — devolve `MUITAS_TENTATIVAS` na hora, sem
+pagar bcrypt nenhum.
 
 ### `entrarComoConvidado`
 Payload: `{ nome: string }` — mesmo limite de `cadastrar` (3 a 24 caracteres
@@ -157,7 +176,9 @@ Erros possíveis: `CONVIDADO_INVALIDO` (nome curto demais),
 `NOME_JA_CADASTRADO` (alguém registrou esse exato nome entre o
 `verificarNome` do cliente e esta chamada — corrida rara, mas a checagem
 contra o banco é refeita aqui em vez de confiar só no que o cliente viu
-antes).
+antes), `JA_AUTENTICADO` (socket já autenticado — ver seção própria mais
+abaixo; convidado sempre nasce com id novo, então qualquer socket já
+autenticado é barrado).
 
 ### `retomarSessao`
 Payload: `{ token: string }` — um token já emitido por `entrar`, `cadastrar`,
@@ -189,7 +210,37 @@ token sem tocar no banco, então o mesmo caminho serve pros três.
 Erros possíveis: `TOKEN_INVALIDO` (assinatura não bate, token expirado, ou
 veio ausente/malformado — os três casos colapsam no mesmo código, porque o
 cliente reage do mesmo jeito aos três: descarta a sessão salva e volta pro
-login normal).
+login normal), `JA_AUTENTICADO` (ver seção abaixo — só se o token decodificar
+pra uma conta DIFERENTE da que este socket já é; o mesmo token/conta de novo
+é permitido, e precisa continuar sendo — ver abaixo o porquê).
+
+### Reautenticação num socket já autenticado
+
+`entrar`, `cadastrar`, `entrarComoConvidado` e `retomarSessao` são os únicos
+quatro eventos que chamam `autenticarSocket` internamente — e ela só dá
+`join` na room pessoal nova (`jogador:<id>`), **nunca `leave`** na antiga.
+Isso é de propósito (reconectar não deveria precisar saber qual era a
+identidade anterior pra "sair" dela primeiro), mas sem um guard, um socket já
+autenticado como conta A que chamasse qualquer um desses quatro de novo com
+credenciais de conta B ficaria pertencendo às DUAS rooms pessoais ao mesmo
+tempo — recebendo `suaMao`/`maosReveladas` privados das duas contas na mesma
+conexão. Numa mesa de cartas isso é sério: um cliente customizado (a UI
+normal nunca faz isso) poderia entrar com a conta A numa sala, depois com a
+conta B — mesmo socket — na MESMA sala (`entrarSala` só checa "esse
+`player.id` já está aqui?", que é `false` pra uma conta diferente), e jogar
+os dois assentos vendo as duas mãos.
+
+Por isso, os quatro eventos recusam com `JA_AUTENTICADO` se o resultado da
+autenticação for uma conta **diferente** da que este socket já é. **Virar a
+MESMA conta de novo é permitido** — não é uma troca de identidade, e
+`autenticarSocket` é idempotente pra esse caso (reescreve os mesmos mapas,
+`join` numa room que já pertence não faz nada). Essa exceção não é só
+teórica: o efeito de restaurar sessão salva do front (`App.jsx`) roda dentro
+de `React.StrictMode` (`public/app/src/main.jsx`), que em desenvolvimento
+invoca esse efeito duas vezes de propósito — disparando dois `retomarSessao`
+**reais** pro mesmo token, no mesmo socket, antes do primeiro ack voltar. Sem
+a exceção "mesma conta é permitida", isso quebraria a restauração de sessão
+toda vez em `npm run dev`.
 
 ### `criarSala`
 Payload: `{ numberPlayers?: number, roundStart?: number, randomShuffle?: boolean, maxDeck?: number, seed?: number, botNumber?: number, chatAberto?: boolean }`
@@ -745,7 +796,8 @@ de conexão, não do jogo), então chega igual na sala de espera e na partida.
 | `NOME_JA_CADASTRADO` | `cadastrar` com nome que já existe no banco; ou `entrarComoConvidado` com nome que virou conta registrada entre o `verificarNome` do cliente e a chamada |
 | `CONVIDADO_INVALIDO` | `entrarComoConvidado` com nome menor que 3 caracteres |
 | `TOKEN_INVALIDO` | `retomarSessao` com token que não bate a assinatura, expirou, ou veio ausente/malformado |
-| `MUITAS_TENTATIVAS` | `verificarNome` acima do teto por IP (20 a cada 5 minutos), **ou** `entrar` com 5 falhas (senha errada/usuário inexistente) em 20 minutos pelo mesmo IP — ver `conexao/rateLimiter.js`. Espere a janela passar |
+| `JA_AUTENTICADO` | `entrar`/`cadastrar`/`entrarComoConvidado`/`retomarSessao` tentando virar OUTRA conta num socket que já é alguém (ver "Reautenticação num socket já autenticado") — a mesma conta de novo é permitida, não cai aqui |
+| `MUITAS_TENTATIVAS` | `verificarNome` acima do teto por IP (20 a cada 5 minutos), `entrar` com 5 falhas (senha errada/usuário inexistente) em 20 minutos, **ou** `cadastrar` com 10 tentativas (sucesso incluso) em 10 minutos, tudo pelo mesmo IP — ver `conexao/rateLimiter.js`. Espere a janela passar |
 | `NOME_INVALIDO` | `entrarSala` com nome já em uso *nessa sala* |
 | `CONFIGURACAO_INVALIDA` | `criarSala` com `numberPlayers`/`roundStart`/`maxDeck`/`botNumber` fora do intervalo aceito (`roundStart` 1 a 10, `maxDeck` 1 a 50), `roundStart` que não cabe em `maxDeck` baralhos com a mesa cheia, `seed` que não é inteiro não-negativo, ou `chatAberto`/`randomShuffle` que não é boolean |
 | `LIMITE_DE_SALAS` | `criarSala`/`partidaRapida` com o teto global de salas simultâneas já atingido — barreira de sanidade, tenta de novo mais tarde |
